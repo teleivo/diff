@@ -14,6 +14,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 )
 
 // OpType represents the type of edit operation.
@@ -48,18 +49,49 @@ type Edit struct {
 	NewLine string // line from b (for Ins and Eq)
 }
 
-// Files computes the shortest edit script to transform file1 into file2.
-// It reads both files, splits them into lines, and returns the edit operations.
-func Files(file1, file2 string) ([]Edit, error) {
-	a, err := readLines(file1)
+// Files computes the diff between two files and writes the result in unified diff
+// format to w. It returns true if there are differences, false if the files are
+// identical. The context parameter specifies the number of unchanged lines to
+// show around each change.
+func Files(w io.Writer, oldFile, newFile string, context int) (bool, error) {
+	oldStat, err := os.Stat(oldFile)
 	if err != nil {
-		return nil, err
+		return false, err
 	}
-	b, err := readLines(file2)
+	newStat, err := os.Stat(newFile)
 	if err != nil {
-		return nil, err
+		return false, err
 	}
-	return Lines(a, b), nil
+
+	a, err := readLines(oldFile)
+	if err != nil {
+		return false, err
+	}
+	b, err := readLines(newFile)
+	if err != nil {
+		return false, err
+	}
+
+	edits := Lines(a, b)
+
+	hasDiff := false
+	for _, e := range edits {
+		if e.Op != Eq {
+			hasDiff = true
+			break
+		}
+	}
+	if !hasDiff {
+		return false, nil
+	}
+
+	if err := WriteFileHeader(w, oldFile, oldStat.ModTime(), newFile, newStat.ModTime()); err != nil {
+		return false, err
+	}
+	if err := WriteUnified(w, edits, context); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func readLines(path string) ([]string, error) {
@@ -70,7 +102,9 @@ func readLines(path string) ([]string, error) {
 	if len(data) == 0 {
 		return nil, nil
 	}
-	return strings.Split(string(data), "\n"), nil
+	s := string(data)
+	s = strings.TrimSuffix(s, "\n")
+	return strings.Split(s, "\n"), nil
 }
 
 // Lines computes the shortest edit script to transform sequence a into sequence b.
@@ -331,6 +365,19 @@ func (uw *unifiedWriter) writeEdit(e Edit) {
 		_, _ = uw.w.WriteString(e.NewLine)
 	}
 	_ = uw.w.WriteByte('\n')
+}
+
+// WriteFileHeader writes the file header for a unified diff.
+// The format is:
+//
+//	--- oldName	oldTime
+//	+++ newName	newTime
+func WriteFileHeader(w io.Writer, oldName string, oldTime time.Time, newName string, newTime time.Time) error {
+	const timeFormat = "2006-01-02 15:04:05.000000000 -0700"
+	_, err := fmt.Fprintf(w, "--- %s\t%s\n+++ %s\t%s\n",
+		oldName, oldTime.Format(timeFormat),
+		newName, newTime.Format(timeFormat))
+	return err
 }
 
 // writeHunkHeader writes a hunk header in unified diff format.

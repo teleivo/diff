@@ -1,12 +1,12 @@
 # TODO
 
-* add: No·newline·at·end·of·file
-* add: file header to gdiff cli
+* fix: No·newline·at·end·of·file
 * cleanup
   * any changes to API to allocate less? anythink keeping in mind the assertion lib?
 should I implement the assertion style in the diff lib itself? or in the assertion library? should I
 then return hunks instead of edits?
-  * tests
+  * check error handling
+  * can I simplify the hunk writing logic?
   * docs
 * commit to main
 
@@ -17,7 +17,7 @@ then return hunks instead of edits?
   insertions
 
 * use this library in assertive to replace cmp dependency
-  * finish mockup
+  * finish design
   * implement
   * git tag
   * depend on it in assertive

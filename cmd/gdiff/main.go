@@ -25,11 +25,16 @@ func main() {
 func run(args []string, w io.Writer, wErr io.Writer) (int, error) {
 	flags := flag.NewFlagSet("gdiff", flag.ContinueOnError)
 	flags.SetOutput(wErr)
+	unified := flags.Bool("u", false, "output 3 lines of unified context")
+	context := flags.Int("U", 3, "output NUM lines of unified context")
 	flags.Usage = func() {
 		_, _ = fmt.Fprintln(wErr, "gdiff computes the shortest edit script between two files")
 		_, _ = fmt.Fprintln(wErr, "")
-		_, _ = fmt.Fprintln(wErr, "usage: gdiff file1 file2")
+		_, _ = fmt.Fprintln(wErr, "usage: gdiff [-u] [-U NUM] file1 file2")
+		_, _ = fmt.Fprintln(wErr, "")
+		flags.PrintDefaults()
 	}
+	_ = unified // -u just uses default context of 3, same as -U 3
 
 	err := flags.Parse(args[1:])
 	if err != nil {
@@ -44,28 +49,15 @@ func run(args []string, w io.Writer, wErr io.Writer) (int, error) {
 		return 2, nil
 	}
 
-	file1 := flags.Arg(0)
-	file2 := flags.Arg(1)
+	oldFile := flags.Arg(0)
+	newFile := flags.Arg(1)
 
-	edits, err := diff.Files(file1, file2)
+	hasDiff, err := diff.Files(w, oldFile, newFile, *context)
 	if err != nil {
 		return 2, err
 	}
-
-	hasDiff := false
-	for _, e := range edits {
-		if e.Op != diff.Eq {
-			hasDiff = true
-			break
-		}
+	if hasDiff {
+		return 1, nil
 	}
-
-	if !hasDiff {
-		return 0, nil
-	}
-
-	if err := diff.WriteUnified(w, edits, 0); err != nil {
-		return 2, err
-	}
-	return 1, nil
+	return 0, nil
 }
