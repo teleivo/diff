@@ -185,8 +185,8 @@ func (uw *unifiedWriter) write() error {
 			if uw.hunkStart >= 0 {
 				uw.hunkEnd = i
 
+				// set start line for the side that did not initiate the hunk
 				if uw.context > 0 {
-					// set start line for the file that had no context before the change
 					if uw.startOld == 0 {
 						uw.startOld = uw.lineOld
 					} else if uw.startNew == 0 {
@@ -209,13 +209,8 @@ func (uw *unifiedWriter) write() error {
 						uw.hunkEnd -= adjust
 					}
 
-					if err := writeHunkHeader(uw.w, uw.startOld, uw.countOld, uw.startNew, uw.countNew); err != nil {
+					if err := uw.writeHunk(uw.hunkEnd); err != nil {
 						return err
-					}
-					for j := uw.hunkStart; j < uw.hunkEnd; j++ {
-						if err := uw.writeEdit(uw.edits[j]); err != nil {
-							return err
-						}
 					}
 					uw.hunkStart = -1
 					uw.hunkEnd = -1
@@ -238,15 +233,12 @@ func (uw *unifiedWriter) write() error {
 
 			if uw.hunkStart < 0 { // starting new hunk
 				uw.hunkStart = max(0, i-uw.context)
-
-				var context int
-				if i > 0 { // context before
-					context = min(i, uw.context)
-					uw.countOld += context
-					uw.countNew += context
-					if context > 0 {
-						uw.startOld = uw.lineOld
-					}
+				context := i - uw.hunkStart
+				// context before
+				uw.countOld += context
+				uw.countNew += context
+				if context > 0 {
+					uw.startOld = uw.lineOld
 				}
 				uw.startNew = uw.lineNew - context
 			} else { // part of an existing hunk
@@ -263,15 +255,12 @@ func (uw *unifiedWriter) write() error {
 
 			if uw.hunkStart < 0 { // starting new hunk
 				uw.hunkStart = max(0, i-uw.context)
-
-				var context int
-				if i > 0 { // context before
-					context = min(i, uw.context)
-					uw.countOld += context
-					uw.countNew += context
-					if context > 0 {
-						uw.startNew = uw.lineNew
-					}
+				context := i - uw.hunkStart
+				// context before
+				uw.countOld += context
+				uw.countNew += context
+				if context > 0 {
+					uw.startNew = uw.lineNew
 				}
 				uw.startOld = uw.lineOld - context
 			} else { // part of an existing hunk
@@ -298,13 +287,21 @@ func (uw *unifiedWriter) write() error {
 			uw.hunkEnd -= adjust
 		}
 
-		if err := writeHunkHeader(uw.w, uw.startOld, uw.countOld, uw.startNew, uw.countNew); err != nil {
+		if err := uw.writeHunk(uw.hunkEnd + 1); err != nil {
 			return err
 		}
-		for j := uw.hunkStart; j <= uw.hunkEnd; j++ {
-			if err := uw.writeEdit(uw.edits[j]); err != nil {
-				return err
-			}
+	}
+	return nil
+}
+
+// writeHunk writes the hunk header and edits from hunkStart up to but not including end.
+func (uw *unifiedWriter) writeHunk(end int) error {
+	if err := writeHunkHeader(uw.w, uw.startOld, uw.countOld, uw.startNew, uw.countNew); err != nil {
+		return err
+	}
+	for j := uw.hunkStart; j < end; j++ {
+		if err := uw.writeEdit(uw.edits[j]); err != nil {
+			return err
 		}
 	}
 	return nil
