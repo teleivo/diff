@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/teleivo/diff"
 )
@@ -25,16 +27,14 @@ func main() {
 func run(args []string, w io.Writer, wErr io.Writer) (int, error) {
 	flags := flag.NewFlagSet("gdiff", flag.ContinueOnError)
 	flags.SetOutput(wErr)
-	unified := flags.Bool("u", false, "output 3 lines of unified context")
 	context := flags.Int("U", 3, "output NUM lines of unified context")
 	flags.Usage = func() {
 		_, _ = fmt.Fprintln(wErr, "gdiff computes the shortest edit script between two files")
 		_, _ = fmt.Fprintln(wErr, "")
-		_, _ = fmt.Fprintln(wErr, "usage: gdiff [-u] [-U NUM] file1 file2")
+		_, _ = fmt.Fprintln(wErr, "usage: gdiff [-U NUM] file1 file2")
 		_, _ = fmt.Fprintln(wErr, "")
 		flags.PrintDefaults()
 	}
-	_ = unified // -u just uses default context of 3, same as -U 3
 
 	err := flags.Parse(args[1:])
 	if err != nil {
@@ -52,7 +52,7 @@ func run(args []string, w io.Writer, wErr io.Writer) (int, error) {
 	oldFile := flags.Arg(0)
 	newFile := flags.Arg(1)
 
-	hasDiff, err := diff.Files(w, oldFile, newFile, *context)
+	hasDiff, err := files(w, oldFile, newFile, *context)
 	if err != nil {
 		return 2, err
 	}
@@ -60,4 +60,70 @@ func run(args []string, w io.Writer, wErr io.Writer) (int, error) {
 		return 1, nil
 	}
 	return 0, nil
+}
+
+func files(w io.Writer, oldFile, newFile string, context int) (bool, error) {
+	oldStat, err := os.Stat(oldFile)
+	if err != nil {
+		return false, err
+	}
+	newStat, err := os.Stat(newFile)
+	if err != nil {
+		return false, err
+	}
+
+	a, err := readLines(oldFile)
+	if err != nil {
+		return false, err
+	}
+	b, err := readLines(newFile)
+	if err != nil {
+		return false, err
+	}
+
+	edits := diff.Lines(a, b)
+
+	hasDiff := false
+	for _, e := range edits {
+		if e.Op != diff.Eq {
+			hasDiff = true
+			break
+		}
+	}
+	if !hasDiff {
+		return false, nil
+	}
+
+	if err := writeFileHeader(w, oldFile, oldStat.ModTime(), newFile, newStat.ModTime()); err != nil {
+		return false, err
+	}
+	if err := diff.WriteUnified(w, edits, context); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func readLines(path string) ([]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if len(data) == 0 {
+		return nil, nil
+	}
+	// SplitAfter keeps the delimiter on each element. Files ending in "\n"
+	// produce a trailing empty string that is not a real line.
+	lines := strings.SplitAfter(string(data), "\n")
+	if lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines, nil
+}
+
+func writeFileHeader(w io.Writer, oldName string, oldTime time.Time, newName string, newTime time.Time) error {
+	const timeFormat = "2006-01-02 15:04:05.000000000 -0700"
+	_, err := fmt.Fprintf(w, "--- %s\t%s\n+++ %s\t%s\n",
+		oldName, oldTime.Format(timeFormat),
+		newName, newTime.Format(timeFormat))
+	return err
 }

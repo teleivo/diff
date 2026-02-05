@@ -11,10 +11,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"os"
 	"slices"
-	"strings"
-	"time"
 )
 
 // OpType represents the type of edit operation.
@@ -42,69 +39,13 @@ func (op OpType) String() string {
 	}
 }
 
-// Edit represents a single edit operation in the diff.
+// Edit represents a single edit operation in the diff. Line values include their trailing
+// newline delimiter when present. A line without a trailing '\n' indicates the last line of
+// a file that has no final newline.
 type Edit struct {
 	Op      OpType
 	OldLine string // line from a (for Del and Eq)
 	NewLine string // line from b (for Ins and Eq)
-}
-
-// Files computes the diff between two files and writes the result in unified diff
-// format to w. It returns true if there are differences, false if the files are
-// identical. The context parameter specifies the number of unchanged lines to
-// show around each change.
-func Files(w io.Writer, oldFile, newFile string, context int) (bool, error) {
-	oldStat, err := os.Stat(oldFile)
-	if err != nil {
-		return false, err
-	}
-	newStat, err := os.Stat(newFile)
-	if err != nil {
-		return false, err
-	}
-
-	a, err := readLines(oldFile)
-	if err != nil {
-		return false, err
-	}
-	b, err := readLines(newFile)
-	if err != nil {
-		return false, err
-	}
-
-	edits := Lines(a, b)
-
-	hasDiff := false
-	for _, e := range edits {
-		if e.Op != Eq {
-			hasDiff = true
-			break
-		}
-	}
-	if !hasDiff {
-		return false, nil
-	}
-
-	if err := WriteFileHeader(w, oldFile, oldStat.ModTime(), newFile, newStat.ModTime()); err != nil {
-		return false, err
-	}
-	if err := WriteUnified(w, edits, context); err != nil {
-		return false, err
-	}
-	return true, nil
-}
-
-func readLines(path string) ([]string, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	if len(data) == 0 {
-		return nil, nil
-	}
-	s := string(data)
-	s = strings.TrimSuffix(s, "\n")
-	return strings.Split(s, "\n"), nil
 }
 
 // Lines computes the shortest edit script to transform sequence a into sequence b.
@@ -214,9 +155,10 @@ type unifiedWriter struct {
 	countOld  int
 }
 
-// WriteUnified writes the edits in unified diff format to w.
-// The context parameter specifies the number of unchanged lines to show around each change.
-// With context=0, only deletions and insertions are written; equal lines are omitted.
+// WriteUnified writes the edits in unified diff format to w. Lines that do not end in '\n'
+// are followed by a "\ No newline at end of file" marker. The context parameter specifies
+// the number of unchanged lines to show around each change. With context=0, only deletions
+// and insertions are written; equal lines are omitted.
 func WriteUnified(w io.Writer, edits []Edit, context int) error {
 	uw := &unifiedWriter{
 		w:         bufio.NewWriter(w),
@@ -224,8 +166,6 @@ func WriteUnified(w io.Writer, edits []Edit, context int) error {
 		context:   context,
 		hunkStart: -1,
 		hunkEnd:   -1,
-		// startOld:    -1,
-		// startNew:    -1,
 	}
 	uw.write()
 	return uw.w.Flush()
@@ -360,24 +300,17 @@ func (uw *unifiedWriter) write() {
 func (uw *unifiedWriter) writeEdit(e Edit) {
 	_, _ = uw.w.WriteString(e.Op.String())
 	if e.Op == Del {
-		_, _ = uw.w.WriteString(e.OldLine)
+		uw.writeLine(e.OldLine)
 	} else {
-		_, _ = uw.w.WriteString(e.NewLine)
+		uw.writeLine(e.NewLine)
 	}
-	_ = uw.w.WriteByte('\n')
 }
 
-// WriteFileHeader writes the file header for a unified diff.
-// The format is:
-//
-//	--- oldName	oldTime
-//	+++ newName	newTime
-func WriteFileHeader(w io.Writer, oldName string, oldTime time.Time, newName string, newTime time.Time) error {
-	const timeFormat = "2006-01-02 15:04:05.000000000 -0700"
-	_, err := fmt.Fprintf(w, "--- %s\t%s\n+++ %s\t%s\n",
-		oldName, oldTime.Format(timeFormat),
-		newName, newTime.Format(timeFormat))
-	return err
+func (uw *unifiedWriter) writeLine(s string) {
+	_, _ = uw.w.WriteString(s)
+	if len(s) > 0 && s[len(s)-1] != '\n' {
+		_, _ = uw.w.WriteString("\n\\ No newline at end of file\n")
+	}
 }
 
 // writeHunkHeader writes a hunk header in unified diff format.
