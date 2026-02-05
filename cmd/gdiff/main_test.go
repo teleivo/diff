@@ -34,8 +34,8 @@ func TestFiles(t *testing.T) {
 			b:        "testdata/one_line_different.txt",
 			context:  3,
 			wantDiff: true,
-			want: `--- testdata/one_line.txt	2026-02-01 10:38:04.796973594 +0100
-+++ testdata/one_line_different.txt	2026-02-01 10:38:10.508955843 +0100
+			want: `--- testdata/one_line.txt	2026-02-05 07:06:29.205156380 +0100
++++ testdata/one_line_different.txt	2026-02-05 07:06:29.205156380 +0100
 @@ -1 +1 @@
 -hello
 \ No newline at end of file
@@ -48,8 +48,8 @@ func TestFiles(t *testing.T) {
 			b:        "testdata/multi_line_b.txt",
 			context:  3,
 			wantDiff: true,
-			want: `--- testdata/multi_line_a.txt	2026-02-04 09:12:40.837254955 +0100
-+++ testdata/multi_line_b.txt	2026-02-04 09:12:40.837254955 +0100
+			want: `--- testdata/multi_line_a.txt	2026-02-05 07:06:29.205156380 +0100
++++ testdata/multi_line_b.txt	2026-02-05 07:06:29.205156380 +0100
 @@ -1,3 +1,3 @@
  line1
 -line2
