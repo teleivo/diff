@@ -310,6 +310,22 @@ func (uw *unifiedWriter) write() error {
 	return nil
 }
 
+// writeHunkHeader writes a hunk header in unified diff format.
+// When count is 1, it is omitted (e.g., @@ -2 +2 @@ instead of @@ -2,1 +2,1 @@).
+func writeHunkHeader(w io.Writer, oldStart, oldCount, newStart, newCount int) error {
+	var err error
+	if oldCount != 1 && newCount != 1 {
+		_, err = fmt.Fprintf(w, "@@ -%d,%d +%d,%d @@\n", oldStart, oldCount, newStart, newCount)
+	} else if oldCount == 1 && newCount == 1 {
+		_, err = fmt.Fprintf(w, "@@ -%d +%d @@\n", oldStart, newStart)
+	} else if oldCount == 1 {
+		_, err = fmt.Fprintf(w, "@@ -%d +%d,%d @@\n", oldStart, newStart, newCount)
+	} else {
+		_, err = fmt.Fprintf(w, "@@ -%d,%d +%d @@\n", oldStart, oldCount, newStart)
+	}
+	return err
+}
+
 func (uw *unifiedWriter) writeEdit(e Edit) error {
 	if _, err := uw.w.WriteString(e.Op.String()); err != nil {
 		return err
@@ -330,20 +346,4 @@ func (uw *unifiedWriter) writeLine(s string) error {
 		}
 	}
 	return nil
-}
-
-// writeHunkHeader writes a hunk header in unified diff format.
-// When count is 1, it is omitted (e.g., @@ -2 +2 @@ instead of @@ -2,1 +2,1 @@).
-func writeHunkHeader(w io.Writer, oldStart, oldCount, newStart, newCount int) error {
-	var err error
-	if oldCount != 1 && newCount != 1 {
-		_, err = fmt.Fprintf(w, "@@ -%d,%d +%d,%d @@\n", oldStart, oldCount, newStart, newCount)
-	} else if oldCount == 1 && newCount == 1 {
-		_, err = fmt.Fprintf(w, "@@ -%d +%d @@\n", oldStart, newStart)
-	} else if oldCount == 1 {
-		_, err = fmt.Fprintf(w, "@@ -%d +%d,%d @@\n", oldStart, newStart, newCount)
-	} else {
-		_, err = fmt.Fprintf(w, "@@ -%d,%d +%d @@\n", oldStart, oldCount, newStart)
-	}
-	return err
 }
