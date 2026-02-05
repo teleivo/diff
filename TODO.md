@@ -1,10 +1,6 @@
 # TODO
 
-* cleanup
-  * docs
-  * check error handling
-  * can I simplify the hunk writing logic?
-
+* can I simplify the hunk writing logic?
 * commit to main
 
 * use this library in assertive to replace cmp dependency

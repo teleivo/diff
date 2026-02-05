@@ -13,11 +13,14 @@ go install github.com/teleivo/diff/cmd/gdiff@latest
 ```go
 import "github.com/teleivo/diff"
 
-// Compare two slices of strings
-edits := diff.Lines([]string{"a", "b", "c"}, []string{"a", "x", "c"})
+// Compute the shortest edit script between two sequences
+edits := diff.Lines(
+	[]string{"a", "b", "c"},
+	[]string{"a", "x", "c"},
+)
 
-// Compare two files
-edits, err := diff.Files("file1.txt", "file2.txt")
+// Write the edit script in unified diff format
+err := diff.WriteUnified(os.Stdout, edits, 3)
 ```
 
 ## CLI

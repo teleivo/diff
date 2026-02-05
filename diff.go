@@ -18,9 +18,9 @@ import (
 type OpType int
 
 const (
-	// Ins indicates a line should be inserted from sequence b.
+	// Ins indicates a line should be inserted from the new sequence.
 	Ins OpType = iota
-	// Del indicates a line should be deleted from sequence a.
+	// Del indicates a line should be deleted from the old sequence.
 	Del
 	// Eq indicates the line is equal in both sequences.
 	Eq
@@ -39,26 +39,27 @@ func (op OpType) String() string {
 	}
 }
 
-// Edit represents a single edit operation in the diff. Line values include their trailing
-// newline delimiter when present. A line without a trailing '\n' indicates the last line of
-// a file that has no final newline.
+// Edit represents a single edit operation in the diff. Line values may include a trailing
+// '\n' delimiter. A line without a trailing '\n' represents the last line of a sequence
+// that has no final newline.
 type Edit struct {
 	Op      OpType
-	OldLine string // line from a (for Del and Eq)
-	NewLine string // line from b (for Ins and Eq)
+	OldLine string // line from the old sequence (for Del and Eq)
+	NewLine string // line from the new sequence (for Ins and Eq)
 }
 
-// Lines computes the shortest edit script to transform sequence a into sequence b.
-// It returns a slice of [Edit] operations that, when applied in order, convert a to b.
-func Lines(a, b []string) []Edit {
-	n := len(a)
-	m := len(b)
+// Lines computes the shortest edit script to transform oldLines into newLines.
+// It returns a slice of [Edit] operations that, when applied in order, convert oldLines
+// to newLines.
+func Lines(oldLines, newLines []string) []Edit {
+	n := len(oldLines)
+	m := len(newLines)
 	maxD := n + m
 	if maxD == 0 {
 		return nil
 	}
 	var edits []Edit
-	trace := shortestEdit(a, b)
+	trace := shortestEdit(oldLines, newLines)
 	x, y := n, m
 	for d := len(trace) - 1; d >= 0; d-- {
 		v := trace[d]
@@ -78,16 +79,16 @@ func Lines(a, b []string) []Edit {
 		prevY = prevX - prevK
 
 		for x > prevX && y > prevY { // advance on snake i.e. diagonal
-			edits = append(edits, Edit{Op: Eq, OldLine: a[x-1], NewLine: b[y-1]})
+			edits = append(edits, Edit{Op: Eq, OldLine: oldLines[x-1], NewLine: newLines[y-1]})
 			x--
 			y--
 		}
 
 		if d > 0 {
 			if op == Ins {
-				edits = append(edits, Edit{Op: Ins, NewLine: b[y-1]})
+				edits = append(edits, Edit{Op: Ins, NewLine: newLines[y-1]})
 			} else {
-				edits = append(edits, Edit{Op: Del, OldLine: a[x-1]})
+				edits = append(edits, Edit{Op: Del, OldLine: oldLines[x-1]})
 			}
 		}
 		x, y = prevX, prevY
@@ -137,22 +138,23 @@ func shortestEdit(a, b []string) [][]int {
 	return trace
 }
 
+// unifiedWriter writes edits as unified diff hunks. It groups changes into hunks, merging
+// hunks that are separated by fewer than 2*context equal lines.
 type unifiedWriter struct {
 	w       *bufio.Writer
 	edits   []Edit
 	context int
-	eqCount int
+	eqCount int // consecutive equal lines since the last change
 
-	lineNew int
-	lineOld int
+	lineOld int // current line number in the old sequence
+	lineNew int // current line number in the new sequence
 
-	// hunk
-	hunkStart int // 0 indexed
-	hunkEnd   int // 0 indexed
-	startNew  int // 1 indexed
-	startOld  int // 1 indexed
-	countNew  int
-	countOld  int
+	hunkStart int // index into edits where the current hunk starts (0-indexed, -1 if no active hunk)
+	hunkEnd   int // index into edits where the current hunk ends (0-indexed, inclusive)
+	startOld  int // start line in the old sequence for the current hunk (1-indexed)
+	startNew  int // start line in the new sequence for the current hunk (1-indexed)
+	countOld  int // number of old lines in the current hunk
+	countNew  int // number of new lines in the current hunk
 }
 
 // WriteUnified writes the edits in unified diff format to w. Lines that do not end in '\n'
@@ -167,11 +169,13 @@ func WriteUnified(w io.Writer, edits []Edit, context int) error {
 		hunkStart: -1,
 		hunkEnd:   -1,
 	}
-	uw.write()
+	if err := uw.write(); err != nil {
+		return err
+	}
 	return uw.w.Flush()
 }
 
-func (uw *unifiedWriter) write() {
+func (uw *unifiedWriter) write() error {
 	for i := 0; i < len(uw.edits); i++ {
 		switch uw.edits[i].Op {
 		case Eq:
@@ -205,9 +209,13 @@ func (uw *unifiedWriter) write() {
 						uw.hunkEnd -= adjust
 					}
 
-					_ = writeHunkHeader(uw.w, uw.startOld, uw.countOld, uw.startNew, uw.countNew)
+					if err := writeHunkHeader(uw.w, uw.startOld, uw.countOld, uw.startNew, uw.countNew); err != nil {
+						return err
+					}
 					for j := uw.hunkStart; j < uw.hunkEnd; j++ {
-						uw.writeEdit(uw.edits[j])
+						if err := uw.writeEdit(uw.edits[j]); err != nil {
+							return err
+						}
 					}
 					uw.hunkStart = -1
 					uw.hunkEnd = -1
@@ -290,27 +298,38 @@ func (uw *unifiedWriter) write() {
 			uw.hunkEnd -= adjust
 		}
 
-		_ = writeHunkHeader(uw.w, uw.startOld, uw.countOld, uw.startNew, uw.countNew)
+		if err := writeHunkHeader(uw.w, uw.startOld, uw.countOld, uw.startNew, uw.countNew); err != nil {
+			return err
+		}
 		for j := uw.hunkStart; j <= uw.hunkEnd; j++ {
-			uw.writeEdit(uw.edits[j])
+			if err := uw.writeEdit(uw.edits[j]); err != nil {
+				return err
+			}
 		}
 	}
+	return nil
 }
 
-func (uw *unifiedWriter) writeEdit(e Edit) {
-	_, _ = uw.w.WriteString(e.Op.String())
+func (uw *unifiedWriter) writeEdit(e Edit) error {
+	if _, err := uw.w.WriteString(e.Op.String()); err != nil {
+		return err
+	}
 	if e.Op == Del {
-		uw.writeLine(e.OldLine)
-	} else {
-		uw.writeLine(e.NewLine)
+		return uw.writeLine(e.OldLine)
 	}
+	return uw.writeLine(e.NewLine)
 }
 
-func (uw *unifiedWriter) writeLine(s string) {
-	_, _ = uw.w.WriteString(s)
-	if len(s) > 0 && s[len(s)-1] != '\n' {
-		_, _ = uw.w.WriteString("\n\\ No newline at end of file\n")
+func (uw *unifiedWriter) writeLine(s string) error {
+	if _, err := uw.w.WriteString(s); err != nil {
+		return err
 	}
+	if len(s) > 0 && s[len(s)-1] != '\n' {
+		if _, err := uw.w.WriteString("\n\\ No newline at end of file\n"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // writeHunkHeader writes a hunk header in unified diff format.
