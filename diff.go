@@ -237,12 +237,14 @@ func (uw *unifiedWriter) write() error {
 				// context before
 				uw.countOld += context
 				uw.countNew += context
+				// defer setting non-initiating hunk start if there is no context before as a Del could be part of this hunk
 				if context > 0 {
 					uw.startOld = uw.lineOld
 				}
 				uw.startNew = uw.lineNew - context
 			} else { // part of an existing hunk
-				// set start line for the file that had no context before the change
+				// set start line for the non-initiating hunk that had no context before the Del
+				// initiating the hunk
 				if uw.startNew == 0 {
 					uw.startNew = uw.lineNew
 				}
@@ -259,12 +261,14 @@ func (uw *unifiedWriter) write() error {
 				// context before
 				uw.countOld += context
 				uw.countNew += context
+				// defer setting non-initiating hunk start if there is no context before as an Ins could be part of this hunk
 				if context > 0 {
 					uw.startNew = uw.lineNew
 				}
 				uw.startOld = uw.lineOld - context
 			} else { // part of an existing hunk
-				// set start line for the file that had no context before the change
+				// set start line for the non-initiating hunk that had no context before the Ins
+				// initiating the hunk
 				if uw.startOld == 0 {
 					uw.startOld = uw.lineOld
 				}
