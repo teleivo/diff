@@ -385,17 +385,15 @@ func (uw *unifiedWriter) writeHunk(end int) error {
 // writeHunkHeader writes a hunk header in unified diff format.
 // When count is 1, it is omitted (e.g., @@ -2 +2 @@ instead of @@ -2,1 +2,1 @@).
 func writeHunkHeader(w io.Writer, oldStart, oldCount, newStart, newCount int) error {
-	var err error
-	if oldCount != 1 && newCount != 1 {
-		_, err = fmt.Fprintf(w, "@@ -%d,%d +%d,%d @@\n", oldStart, oldCount, newStart, newCount)
-	} else if oldCount == 1 && newCount == 1 {
-		_, err = fmt.Fprintf(w, "@@ -%d +%d @@\n", oldStart, newStart)
-	} else if oldCount == 1 {
-		_, err = fmt.Fprintf(w, "@@ -%d +%d,%d @@\n", oldStart, newStart, newCount)
-	} else {
-		_, err = fmt.Fprintf(w, "@@ -%d,%d +%d @@\n", oldStart, oldCount, newStart)
-	}
+	_, err := fmt.Fprintf(w, "@@ -%s +%s @@\n", hunkRange(oldStart, oldCount), hunkRange(newStart, newCount))
 	return err
+}
+
+func hunkRange(start, count int) string {
+	if count == 1 {
+		return fmt.Sprintf("%d", start)
+	}
+	return fmt.Sprintf("%d,%d", start, count)
 }
 
 func (uw *unifiedWriter) writeEdit(e Edit, oldLine int, showNewlineMark bool) error {
