@@ -639,24 +639,24 @@ func TestWrite(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Run("Unified", func(t *testing.T) {
 				var buf bytes.Buffer
-				err := diff.WriteUnified(&buf, test.edits, test.context)
+				err := diff.Write(&buf, test.edits, diff.WithContext(test.context))
 				if err != nil {
-					t.Fatalf("WriteUnified() error: %v", err)
+					t.Fatalf("Write() error: %v", err)
 				}
 				got := buf.String()
 				if got != test.wantUnified {
-					t.Errorf("WriteUnified() =\n%q\nwant:\n%q", got, test.wantUnified)
+					t.Errorf("Write() =\n%q\nwant:\n%q", got, test.wantUnified)
 				}
 			})
 			t.Run("Gutter", func(t *testing.T) {
 				var buf bytes.Buffer
-				err := diff.WriteGutter(&buf, test.edits, test.context)
+				err := diff.Write(&buf, test.edits, diff.WithGutter, diff.WithContext(test.context))
 				if err != nil {
-					t.Fatalf("WriteGutter() error: %v", err)
+					t.Fatalf("Write() error: %v", err)
 				}
 				got := buf.String()
 				if got != test.wantGutter {
-					t.Errorf("WriteGutter() =\n%q\nwant:\n%q", got, test.wantGutter)
+					t.Errorf("Write() =\n%q\nwant:\n%q", got, test.wantGutter)
 				}
 			})
 		})

@@ -99,9 +99,8 @@ func Lines(oldLines, newLines []string) []Edit {
 }
 
 type config struct {
-	context    int
-	hunkHeader bool
-	gutter     bool
+	context int
+	gutter  bool
 }
 
 // Option configures how [Write] formats its output.
@@ -118,11 +117,6 @@ func WithContext(lines int) Option {
 	}
 }
 
-// WithHunkHeader enables unified diff hunk headers (@@ ... @@) at each change group.
-func WithHunkHeader(conf *config) {
-	conf.hunkHeader = true
-}
-
 // WithGutter enables gutter format: each line is prefixed with a line number from the old
 // sequence, an operation indicator, and a │ separator. Whitespace in changed lines is made
 // visible (spaces as ·, tabs as →, newline-only lines as ↵). Runs of identical lines beyond
@@ -132,40 +126,17 @@ func WithGutter(conf *config) {
 }
 
 // Write writes the edits to w. By default it produces unified diff output with hunk headers
-// and 3 lines of context. Use [WithHunkHeader], [WithGutter], and [WithContext] to configure
-// the output.
+// and 3 lines of context. Use [WithGutter] and [WithContext] to configure the output.
 func Write(w io.Writer, edits []Edit, opts ...Option) error {
-	conf := &config{hunkHeader: true, context: 3}
+	conf := &config{context: 3}
 	for _, opt := range opts {
 		opt(conf)
 	}
-	return writeUnified(w, edits, conf.context)
-}
-
-// WriteUnified writes the edits in unified diff format to w. Lines that do not end in '\n'
-// are followed by a "\ No newline at end of file" marker. The context parameter specifies
-// the number of unchanged lines to show around each change. With context=0, only deletions
-// and insertions are written; equal lines are omitted.
-func WriteUnified(w io.Writer, edits []Edit, context int) error {
-	return writeUnified(w, edits, context)
-}
-
-// WriteGutter writes the edits in a gutter diff format to w. This format is designed for readable
-// test failure output. Each line shows a line number from the old sequence, an operation indicator,
-// a gutter separator (│), and the line content.
-//
-// Changed lines (deletions and insertions) have whitespace made visible: spaces are shown as ·
-// (U+00B7), tabs as → (U+2192). Lines that consist of only a newline are shown as ↵ (U+21B5).
-// When a deletion/insertion pair differs in trailing newline presence, ↵ is appended to the line
-// that has the newline to make the difference visible. Context lines are shown as plain text.
-//
-// Line numbers come from the old (want) sequence. Deletion lines show the old line number,
-// insertion lines show a blank. Runs of identical lines beyond the context number of lines around
-// each change are collapsed into a summary line.
-//
-// WriteGutter produces no output when the edits contain no changes.
-func WriteGutter(w io.Writer, edits []Edit, context int) error {
-	return nil
+	uw := &unifiedWriter{w: bufio.NewWriter(w), conf: conf, edits: edits, hunkStart: -1, hunkEnd: -1}
+	if err := uw.write(); err != nil {
+		return err
+	}
+	return uw.w.Flush()
 }
 
 // shortestEdit computes the trace of furthest reaching D-paths for transforming
@@ -212,8 +183,8 @@ func shortestEdit(a, b []string) [][]int {
 // hunks that are separated by fewer than 2*context equal lines.
 type unifiedWriter struct {
 	w       *bufio.Writer
+	conf    *config
 	edits   []Edit
-	context int
 	eqCount int // consecutive equal lines since the last change
 
 	lineOld int // current line number in the old sequence
@@ -227,20 +198,6 @@ type unifiedWriter struct {
 	countNew  int // number of new lines in the current hunk
 }
 
-func writeUnified(w io.Writer, edits []Edit, context int) error {
-	uw := &unifiedWriter{
-		w:         bufio.NewWriter(w),
-		edits:     edits,
-		context:   context,
-		hunkStart: -1,
-		hunkEnd:   -1,
-	}
-	if err := uw.write(); err != nil {
-		return err
-	}
-	return uw.w.Flush()
-}
-
 func (uw *unifiedWriter) write() error {
 	for i := 0; i < len(uw.edits); i++ {
 		switch uw.edits[i].Op {
@@ -252,7 +209,7 @@ func (uw *unifiedWriter) write() error {
 				uw.hunkEnd = i
 
 				// set start line for the side that did not initiate the hunk
-				if uw.context > 0 {
+				if uw.conf.context > 0 {
 					if uw.startOld == 0 {
 						uw.startOld = uw.lineOld
 					} else if uw.startNew == 0 {
@@ -266,10 +223,10 @@ func (uw *unifiedWriter) write() error {
 					}
 				}
 
-				if uw.eqCount+1 > 2*uw.context { // hunk end
+				if uw.eqCount+1 > 2*uw.conf.context { // hunk end
 					// adjust for the extra eq we counted to wait for a possibly merged hunk
-					if uw.context > 0 && uw.eqCount > uw.context {
-						adjust := uw.eqCount - uw.context
+					if uw.conf.context > 0 && uw.eqCount > uw.conf.context {
+						adjust := uw.eqCount - uw.conf.context
 						uw.countOld -= adjust
 						uw.countNew -= adjust
 						uw.hunkEnd -= adjust
@@ -298,7 +255,7 @@ func (uw *unifiedWriter) write() error {
 			uw.hunkEnd = i
 
 			if uw.hunkStart < 0 { // starting new hunk
-				uw.hunkStart = max(0, i-uw.context)
+				uw.hunkStart = max(0, i-uw.conf.context)
 				context := i - uw.hunkStart
 				uw.countOld += context
 				uw.countNew += context
@@ -318,7 +275,7 @@ func (uw *unifiedWriter) write() error {
 			uw.hunkEnd = i
 
 			if uw.hunkStart < 0 { // starting new hunk
-				uw.hunkStart = max(0, i-uw.context)
+				uw.hunkStart = max(0, i-uw.conf.context)
 				context := i - uw.hunkStart
 				uw.countOld += context
 				uw.countNew += context
@@ -342,8 +299,8 @@ func (uw *unifiedWriter) write() error {
 			uw.startNew = uw.lineNew
 		}
 		// adjust for the extra eq we counted to wait for a possibly merged hunk
-		if uw.context > 0 && uw.eqCount > uw.context {
-			adjust := uw.eqCount - uw.context
+		if uw.conf.context > 0 && uw.eqCount > uw.conf.context {
+			adjust := uw.eqCount - uw.conf.context
 			uw.countOld -= adjust
 			uw.countNew -= adjust
 			uw.hunkEnd -= adjust
@@ -358,12 +315,20 @@ func (uw *unifiedWriter) write() error {
 
 // writeHunk writes the hunk header and edits from hunkStart up to but not including end.
 func (uw *unifiedWriter) writeHunk(end int) error {
-	if err := writeHunkHeader(uw.w, uw.startOld, uw.countOld, uw.startNew, uw.countNew); err != nil {
-		return err
-	}
-	for j := uw.hunkStart; j < end; j++ {
-		if err := uw.writeEdit(uw.edits[j]); err != nil {
+	if !uw.conf.gutter {
+		if err := writeHunkHeader(uw.w, uw.startOld, uw.countOld, uw.startNew, uw.countNew); err != nil {
 			return err
+		}
+	}
+
+	oldLine := uw.startOld
+	for j := uw.hunkStart; j < end; j++ {
+		e := uw.edits[j]
+		if err := uw.writeEdit(e, oldLine); err != nil {
+			return err
+		}
+		if e.Op != Ins {
+			oldLine++
 		}
 	}
 	return nil
@@ -385,7 +350,28 @@ func writeHunkHeader(w io.Writer, oldStart, oldCount, newStart, newCount int) er
 	return err
 }
 
-func (uw *unifiedWriter) writeEdit(e Edit) error {
+func (uw *unifiedWriter) writeEdit(e Edit, oldLine int) error {
+	if uw.conf.gutter {
+		if e.Op != Ins {
+			if _, err := fmt.Fprintf(uw.w, "%d ", oldLine); err != nil {
+				return err
+			}
+		} else {
+			if _, err := uw.w.WriteString("  "); err != nil {
+				return err
+			}
+		}
+		if _, err := uw.w.WriteString(e.Op.String()); err != nil {
+			return err
+		}
+		if _, err := uw.w.WriteString(" │ "); err != nil {
+			return err
+		}
+		if e.Op == Del {
+			return uw.writeLine(e.OldLine)
+		}
+		return uw.writeLine(e.NewLine)
+	}
 	if _, err := uw.w.WriteString(e.Op.String()); err != nil {
 		return err
 	}
