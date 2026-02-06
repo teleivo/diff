@@ -13,20 +13,81 @@ go install github.com/teleivo/diff/cmd/gdiff@latest
 ```go
 import "github.com/teleivo/diff"
 
-// Compute the shortest edit script between two sequences
-edits := diff.Lines(
-	[]string{"a", "b", "c"},
-	[]string{"a", "x", "c"},
-)
+edits := diff.Lines(oldLines, newLines)
 
-// Write the edit script in unified diff format
-err := diff.WriteUnified(os.Stdout, edits, 3)
+// Write in unified diff format
+diff.Write(os.Stdout, edits)
+
+// Write with gutter format (line numbers, visible whitespace)
+diff.Write(os.Stdout, edits, diff.WithGutter)
+```
+
+Given two versions of a function:
+
+```go
+// old                              // new
+func fizzbuzz(n int) string {       func fizzbuzz(n int) string {
+    if n%15 == 0 {                      switch {
+                                        case n%15 == 0:
+        return "FizzBuzz"                   return "FizzBuzz"
+    } else if n%3 == 0 {                case n%3 == 0:
+        return "Fizz"                       return "Fizz"
+    } else if n%5 == 0 {                case n%5 == 0:
+        return "Buzz"                       return "Buzz"
+    }                                   default:
+    return strconv.Itoa(n)                  return strconv.Itoa(n)
+}                                       }
+                                    }
+```
+
+Unified:
+
+```
+@@ -1,10 +1,12 @@
+ func fizzbuzz(n int) string {
+-	if n%15 == 0 {
++	switch {
++	case n%15 == 0:
+ 		return "FizzBuzz"
+-	} else if n%3 == 0 {
++	case n%3 == 0:
+ 		return "Fizz"
+-	} else if n%5 == 0 {
++	case n%5 == 0:
+ 		return "Buzz"
++	default:
++		return strconv.Itoa(n)
+ 	}
+-	return strconv.Itoa(n)
+ }
+```
+
+Gutter:
+
+```
+ 1   │ func fizzbuzz(n int) string {
+ 2 - │ →if·n%15·==·0·{
+   + │ →switch·{
+   + │ →case·n%15·==·0:
+ 3   │ 		return "FizzBuzz"
+ 4 - │ →}·else·if·n%3·==·0·{
+   + │ →case·n%3·==·0:
+ 5   │ 		return "Fizz"
+ 6 - │ →}·else·if·n%5·==·0·{
+   + │ →case·n%5·==·0:
+ 7   │ 		return "Buzz"
+   + │ →default:
+   + │ →→return·strconv.Itoa(n)
+ 8   │ 	}
+ 9 - │ →return·strconv.Itoa(n)
+10   │ }
 ```
 
 ## CLI
 
 ```sh
 gdiff file1.txt file2.txt
+gdiff --gutter file1.txt file2.txt
 ```
 
 Exit codes: 0 (identical), 1 (differences found), 2 (error)

@@ -74,7 +74,7 @@ func TestFiles(t *testing.T) {
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
 			var buf bytes.Buffer
-			hasDiff, err := files(&buf, test.a, test.b, test.context)
+			hasDiff, err := files(&buf, test.a, test.b, test.context, false)
 			if test.wantErr {
 				if err == nil {
 					t.Fatalf("files() expected error, got nil")

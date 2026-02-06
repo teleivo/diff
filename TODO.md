@@ -1,10 +1,6 @@
 # TODO
 
-* use this library in assertive
-  * look for bugs
-  * git tag
-  * depend  assertive
-  * use new assertion in dot project
+* look for bugs
 
 * cli: add color output support - use ANSI escape sequences (e.g., `\033[31m` for red, `\033[32m` for
   green, `\033[0m` to reset). Only emit colors when output is a terminal. Detect with stdlib:
