@@ -22,65 +22,39 @@ diff.Write(os.Stdout, edits)
 diff.Write(os.Stdout, edits, diff.WithGutter())
 ```
 
-Given two versions of a function:
+Given an unformatted and a formatted DOT file:
 
-```go
-// old                              // new
-func fizzbuzz(n int) string {       func fizzbuzz(n int) string {
-    if n%15 == 0 {                      switch {
-                                        case n%15 == 0:
-        return "FizzBuzz"                   return "FizzBuzz"
-    } else if n%3 == 0 {                case n%3 == 0:
-        return "Fizz"                       return "Fizz"
-    } else if n%5 == 0 {                case n%5 == 0:
-        return "Buzz"                       return "Buzz"
-    }                                   default:
-    return strconv.Itoa(n)                  return strconv.Itoa(n)
-}                                       }
-                                    }
+```dot
+// old.dot                           // new.dot
+digraph {                            digraph {
+    3 -> 2 -> 4                          3 -> 2 -> 4
+      [color="blue",len=2.6]              [color="blue",len=2.6]
+        rank = same                      rank=same
+                                     }
+}
 ```
 
-Unified:
+Unified (`gdiff old.dot new.dot`):
 
 ```
-@@ -1,10 +1,12 @@
- func fizzbuzz(n int) string {
--	if n%15 == 0 {
-+	switch {
-+	case n%15 == 0:
- 		return "FizzBuzz"
--	} else if n%3 == 0 {
-+	case n%3 == 0:
- 		return "Fizz"
--	} else if n%5 == 0 {
-+	case n%5 == 0:
- 		return "Buzz"
-+	default:
-+		return strconv.Itoa(n)
- 	}
--	return strconv.Itoa(n)
+@@ -1,5 +2,4 @@
+ digraph {
+ 	3 -> 2 -> 4 [color="blue",len=2.6]
+-		rank = same
+-
++	rank=same
  }
 ```
 
-Gutter:
+Gutter (`gdiff --gutter old.dot new.dot`):
 
 ```
- 1   │ func fizzbuzz(n int) string {
- 2 - │ →if·n%15·==·0·{
-   + │ →switch·{
-   + │ →case·n%15·==·0:
- 3   │ 		return "FizzBuzz"
- 4 - │ →}·else·if·n%3·==·0·{
-   + │ →case·n%3·==·0:
- 5   │ 		return "Fizz"
- 6 - │ →}·else·if·n%5·==·0·{
-   + │ →case·n%5·==·0:
- 7   │ 		return "Buzz"
-   + │ →default:
-   + │ →→return·strconv.Itoa(n)
- 8   │ 	}
- 9 - │ →return·strconv.Itoa(n)
-10   │ }
+1   │ digraph {
+2   │ 	3 -> 2 -> 4 [color="blue",len=2.6]
+3 - │ →→rank·=·same
+4 - │ ↵
+  + │ →rank=same
+5   │ }
 ```
 
 ## CLI

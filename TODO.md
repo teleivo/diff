@@ -1,5 +1,6 @@
 # TODO
 
+* re-write using []Edit -> []Hunk pass
 * look for bugs
 
 * cli: add color output support - use ANSI escape sequences (e.g., `\033[31m` for red, `\033[32m` for
@@ -10,8 +11,6 @@
 
 * use dot/kitty image protocol to show an animation of it that works in ghostty
 
-* refactor: should Write just do multiple passes over []Edit? first create hunks and get max old
-line needed for gutter, then write out []Hunk?
 * refactor: to linear space version (Section 4b of Myers paper) - current implementation uses O(D²)
   space for the trace; the linear space version uses divide-and-conquer to find the "middle snake"
   and only requires O(N) space. Also consider only cloning the active diagonal range [-d, d] per
