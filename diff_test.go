@@ -2,6 +2,7 @@ package diff_test
 
 import (
 	"bytes"
+	"slices"
 	"testing"
 
 	"github.com/teleivo/diff"
@@ -9,34 +10,34 @@ import (
 
 func TestLines(t *testing.T) {
 	tests := map[string]struct {
-		a    []string
-		b    []string
-		want []diff.Edit
+		oldLines []string
+		newLines []string
+		want     []diff.Edit
 	}{
 		"BothEmpty": {
-			a:    []string{},
-			b:    []string{},
-			want: []diff.Edit{},
+			oldLines: []string{},
+			newLines: []string{},
+			want:     []diff.Edit{},
 		},
 		"FirstEmpty": {
-			a: []string{},
-			b: []string{"A", "B"},
+			oldLines: []string{},
+			newLines: []string{"A", "B"},
 			want: []diff.Edit{
 				{Op: diff.Ins, NewLine: "A"},
 				{Op: diff.Ins, NewLine: "B"},
 			},
 		},
 		"SecondEmpty": {
-			a: []string{"A", "B"},
-			b: []string{},
+			oldLines: []string{"A", "B"},
+			newLines: []string{},
 			want: []diff.Edit{
 				{Op: diff.Del, OldLine: "A"},
 				{Op: diff.Del, OldLine: "B"},
 			},
 		},
 		"Equal": {
-			a: []string{"A", "B", "C"},
-			b: []string{"A", "B", "C"},
+			oldLines: []string{"A", "B", "C"},
+			newLines: []string{"A", "B", "C"},
 			want: []diff.Edit{
 				{Op: diff.Eq, OldLine: "A", NewLine: "A"},
 				{Op: diff.Eq, OldLine: "B", NewLine: "B"},
@@ -44,8 +45,8 @@ func TestLines(t *testing.T) {
 			},
 		},
 		"CompletelyDifferent": {
-			a: []string{"A", "B"},
-			b: []string{"C", "D"},
+			oldLines: []string{"A", "B"},
+			newLines: []string{"C", "D"},
 			want: []diff.Edit{
 				{Op: diff.Del, OldLine: "A"},
 				{Op: diff.Del, OldLine: "B"},
@@ -54,8 +55,8 @@ func TestLines(t *testing.T) {
 			},
 		},
 		"CommonPrefix": {
-			a: []string{"A", "B", "C", "X"},
-			b: []string{"A", "B", "C", "Y"},
+			oldLines: []string{"A", "B", "C", "X"},
+			newLines: []string{"A", "B", "C", "Y"},
 			want: []diff.Edit{
 				{Op: diff.Eq, OldLine: "A", NewLine: "A"},
 				{Op: diff.Eq, OldLine: "B", NewLine: "B"},
@@ -65,8 +66,8 @@ func TestLines(t *testing.T) {
 			},
 		},
 		"CommonSuffix": {
-			a: []string{"X", "A", "B", "C"},
-			b: []string{"Y", "A", "B", "C"},
+			oldLines: []string{"X", "A", "B", "C"},
+			newLines: []string{"Y", "A", "B", "C"},
 			want: []diff.Edit{
 				{Op: diff.Del, OldLine: "X"},
 				{Op: diff.Ins, NewLine: "Y"},
@@ -76,8 +77,8 @@ func TestLines(t *testing.T) {
 			},
 		},
 		"PaperExample": {
-			a: []string{"A", "B", "C", "A", "B", "B", "A"},
-			b: []string{"C", "B", "A", "B", "A", "C"},
+			oldLines: []string{"A", "B", "C", "A", "B", "B", "A"},
+			newLines: []string{"C", "B", "A", "B", "A", "C"},
 			want: []diff.Edit{
 				{Op: diff.Del, OldLine: "A"},
 				{Op: diff.Del, OldLine: "B"},
@@ -94,15 +95,10 @@ func TestLines(t *testing.T) {
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			got := diff.Lines(test.a, test.b)
-			if len(got) != len(test.want) {
-				t.Fatalf("diff.Lines(%v, %v) returned %d edits, want %d\ngot:  %v\nwant: %v",
-					test.a, test.b, len(got), len(test.want), got, test.want)
-			}
-			for i := range got {
-				if got[i] != test.want[i] {
-					t.Errorf("diff.Lines(%v, %v)[%d] = %v, want %v", test.a, test.b, i, got[i], test.want[i])
-				}
+			got := diff.Lines(test.oldLines, test.newLines)
+			if !slices.Equal(got, test.want) {
+				t.Errorf("diff.Lines(%v, %v):\ngot:  %v\nwant: %v",
+					test.oldLines, test.newLines, got, test.want)
 			}
 		})
 	}
@@ -423,7 +419,7 @@ func TestWrite(t *testing.T) {
 			wantGutter: "1   │ line1\n" +
 				"2 - │ del1\n" +
 				"3   │ line2\n" +
-				" ───┼─── 2 identical lines ───\n" +
+				" ───┼─── 2 identical line(s) ───\n" +
 				"6   │ line5\n" +
 				"  + │ ins1\n" +
 				"7   │ line6\n",
@@ -461,7 +457,7 @@ func TestWrite(t *testing.T) {
 			wantUnified: "@@ -1 +0,0 @@\n-first\n@@ -2,0 +2 @@\n+last\n",
 			// 1 equal line between changes, 1 > 2*0=0 so hunks separate
 			wantGutter: "1 - │ first\n" +
-				" ───┼─── 1 identical line ───\n" +
+				" ───┼─── 1 identical line(s) ───\n" +
 				"  + │ last\n",
 		},
 		"TwoHunksMergedContext1": {
@@ -496,11 +492,11 @@ func TestWrite(t *testing.T) {
 			// 4 eq between changes, 4 > 2*1=2 so three separate hunks
 			wantGutter: " 1 - │ del1\n" +
 				" 2   │ a\n" +
-				"  ───┼─── 2 identical lines ───\n" +
+				"  ───┼─── 2 identical line(s) ───\n" +
 				" 5   │ d\n" +
 				" 6 - │ del2\n" +
 				" 7   │ e\n" +
-				"  ───┼─── 2 identical lines ───\n" +
+				"  ───┼─── 2 identical line(s) ───\n" +
 				"10   │ h\n" +
 				"   + │ ins1\n",
 		},
@@ -626,7 +622,7 @@ func TestWrite(t *testing.T) {
 				" 2   │     a\n" +
 				" 3   │     b\n" +
 				" 4   │     c\n" +
-				"  ───┼─── 4 identical lines ───\n" +
+				"  ───┼─── 4 identical line(s) ───\n" +
 				" 9   │     h\n" +
 				"10   │     i\n" +
 				"11   │     j\n" +
@@ -650,7 +646,7 @@ func TestWrite(t *testing.T) {
 			})
 			t.Run("Gutter", func(t *testing.T) {
 				var buf bytes.Buffer
-				err := diff.Write(&buf, test.edits, diff.WithGutter, diff.WithContext(test.context))
+				err := diff.Write(&buf, test.edits, diff.WithContext(test.context), diff.WithGutter)
 				if err != nil {
 					t.Fatalf("Write() error: %v", err)
 				}

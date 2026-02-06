@@ -140,7 +140,8 @@ func Write(w io.Writer, edits []Edit, opts ...Option) error {
 				n++
 			}
 		}
-		for v := n; v > 0; v /= 10 {
+		lw = 1
+		for v := n; v > 9; v /= 10 {
 			lw++
 		}
 	}
@@ -199,8 +200,9 @@ type unifiedWriter struct {
 	edits     []Edit
 	lineWidth int // digit width of the largest old line number (for gutter padding)
 
-	firstHunk bool
-	eqCount   int // consecutive equal lines since the last change
+	firstHunk    bool
+	eqCount      int // consecutive equal lines since the last change
+	collapsedEqs int // equal lines collapsed between hunks (for gutter separator)
 
 	lineOld int // current line number in the old sequence
 	lineNew int // current line number in the new sequence
@@ -247,6 +249,7 @@ func (uw *unifiedWriter) write() error {
 						uw.hunkEnd -= adjust
 					}
 
+					uw.collapsedEqs = uw.eqCount + 1 - uw.conf.context
 					if err := uw.writeHunk(uw.hunkEnd); err != nil {
 						return err
 					}
@@ -335,7 +338,7 @@ func (uw *unifiedWriter) writeHunk(end int) error {
 			return err
 		}
 	} else if !uw.firstHunk {
-		if _, err := fmt.Fprintf(uw.w, "───┼─── %d identical lines ───", uw.eqCount); err != nil {
+		if _, err := fmt.Fprintf(uw.w, "%*s───┼─── %d identical line(s) ───\n", uw.lineWidth, "", uw.collapsedEqs); err != nil {
 			return err
 		}
 	}
@@ -355,12 +358,12 @@ func (uw *unifiedWriter) writeHunk(end int) error {
 				pair = &uw.edits[j-1]
 			}
 			if pair != nil {
-				line := e.NewLine
-				pairLine := pair.NewLine
+				var line, pairLine string
 				if e.Op == Del {
 					line = e.OldLine
 					pairLine = pair.NewLine
 				} else {
+					line = e.NewLine
 					pairLine = pair.OldLine
 				}
 				lineHasNL := len(line) > 0 && line[len(line)-1] == '\n'
