@@ -97,7 +97,7 @@ func files(w io.Writer, oldFile, newFile string, context int) (bool, error) {
 	if err := writeFileHeader(w, oldFile, oldStat.ModTime(), newFile, newStat.ModTime()); err != nil {
 		return false, err
 	}
-	if err := diff.WriteUnified(w, edits, context); err != nil {
+	if err := diff.Write(w, edits, diff.WithContext(context)); err != nil {
 		return false, err
 	}
 	return true, nil

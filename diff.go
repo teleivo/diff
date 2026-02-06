@@ -98,6 +98,76 @@ func Lines(oldLines, newLines []string) []Edit {
 	return edits
 }
 
+type config struct {
+	context    int
+	hunkHeader bool
+	gutter     bool
+}
+
+// Option configures how [Write] formats its output.
+type Option func(*config)
+
+// WithContext sets the number of unchanged lines to show around each change.
+// It panics if lines is negative. The default is 3.
+func WithContext(lines int) Option {
+	if lines < 0 {
+		panic("diff: negative context")
+	}
+	return func(conf *config) {
+		conf.context = lines
+	}
+}
+
+// WithHunkHeader enables unified diff hunk headers (@@ ... @@) at each change group.
+func WithHunkHeader(conf *config) {
+	conf.hunkHeader = true
+}
+
+// WithGutter enables gutter format: each line is prefixed with a line number from the old
+// sequence, an operation indicator, and a │ separator. Whitespace in changed lines is made
+// visible (spaces as ·, tabs as →, newline-only lines as ↵). Runs of identical lines beyond
+// the context window are collapsed into a summary line.
+func WithGutter(conf *config) {
+	conf.gutter = true
+}
+
+// Write writes the edits to w. By default it produces unified diff output with hunk headers
+// and 3 lines of context. Use [WithHunkHeader], [WithGutter], and [WithContext] to configure
+// the output.
+func Write(w io.Writer, edits []Edit, opts ...Option) error {
+	conf := &config{hunkHeader: true, context: 3}
+	for _, opt := range opts {
+		opt(conf)
+	}
+	return writeUnified(w, edits, conf.context)
+}
+
+// WriteUnified writes the edits in unified diff format to w. Lines that do not end in '\n'
+// are followed by a "\ No newline at end of file" marker. The context parameter specifies
+// the number of unchanged lines to show around each change. With context=0, only deletions
+// and insertions are written; equal lines are omitted.
+func WriteUnified(w io.Writer, edits []Edit, context int) error {
+	return writeUnified(w, edits, context)
+}
+
+// WriteGutter writes the edits in a gutter diff format to w. This format is designed for readable
+// test failure output. Each line shows a line number from the old sequence, an operation indicator,
+// a gutter separator (│), and the line content.
+//
+// Changed lines (deletions and insertions) have whitespace made visible: spaces are shown as ·
+// (U+00B7), tabs as → (U+2192). Lines that consist of only a newline are shown as ↵ (U+21B5).
+// When a deletion/insertion pair differs in trailing newline presence, ↵ is appended to the line
+// that has the newline to make the difference visible. Context lines are shown as plain text.
+//
+// Line numbers come from the old (want) sequence. Deletion lines show the old line number,
+// insertion lines show a blank. Runs of identical lines beyond the context number of lines around
+// each change are collapsed into a summary line.
+//
+// WriteGutter produces no output when the edits contain no changes.
+func WriteGutter(w io.Writer, edits []Edit, context int) error {
+	return nil
+}
+
 // shortestEdit computes the trace of furthest reaching D-paths for transforming
 // a into b. Each element in the returned slice represents the V array state
 // before each iteration d, which is used to reconstruct the edit script.
@@ -157,11 +227,7 @@ type unifiedWriter struct {
 	countNew  int // number of new lines in the current hunk
 }
 
-// WriteUnified writes the edits in unified diff format to w. Lines that do not end in '\n'
-// are followed by a "\ No newline at end of file" marker. The context parameter specifies
-// the number of unchanged lines to show around each change. With context=0, only deletions
-// and insertions are written; equal lines are omitted.
-func WriteUnified(w io.Writer, edits []Edit, context int) error {
+func writeUnified(w io.Writer, edits []Edit, context int) error {
 	uw := &unifiedWriter{
 		w:         bufio.NewWriter(w),
 		edits:     edits,
