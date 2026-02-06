@@ -324,7 +324,32 @@ func (uw *unifiedWriter) writeHunk(end int) error {
 	oldLine := uw.startOld
 	for j := uw.hunkStart; j < end; j++ {
 		e := uw.edits[j]
-		if err := uw.writeEdit(e, oldLine); err != nil {
+		// Detect missing-final-newline asymmetry in Del/Ins pairs.
+		// When one side has a trailing newline and the other doesn't,
+		// the side with the newline gets a ↵ appended.
+		var showNewlineMark bool
+		if uw.conf.gutter && (e.Op == Del || e.Op == Ins) {
+			var pair *Edit
+			if e.Op == Del && j+1 < end && uw.edits[j+1].Op == Ins {
+				pair = &uw.edits[j+1]
+			} else if e.Op == Ins && j-1 >= uw.hunkStart && uw.edits[j-1].Op == Del {
+				pair = &uw.edits[j-1]
+			}
+			if pair != nil {
+				line := e.NewLine
+				pairLine := pair.NewLine
+				if e.Op == Del {
+					line = e.OldLine
+					pairLine = pair.NewLine
+				} else {
+					pairLine = pair.OldLine
+				}
+				lineHasNL := len(line) > 0 && line[len(line)-1] == '\n'
+				pairHasNL := len(pairLine) > 0 && pairLine[len(pairLine)-1] == '\n'
+				showNewlineMark = lineHasNL && !pairHasNL
+			}
+		}
+		if err := uw.writeEdit(e, oldLine, showNewlineMark); err != nil {
 			return err
 		}
 		if e.Op != Ins {
@@ -350,7 +375,7 @@ func writeHunkHeader(w io.Writer, oldStart, oldCount, newStart, newCount int) er
 	return err
 }
 
-func (uw *unifiedWriter) writeEdit(e Edit, oldLine int) error {
+func (uw *unifiedWriter) writeEdit(e Edit, oldLine int, showNewlineMark bool) error {
 	if uw.conf.gutter {
 		if e.Op != Ins {
 			if _, err := fmt.Fprintf(uw.w, "%d ", oldLine); err != nil {
@@ -367,27 +392,76 @@ func (uw *unifiedWriter) writeEdit(e Edit, oldLine int) error {
 		if _, err := uw.w.WriteString(" │ "); err != nil {
 			return err
 		}
+		replace := e.Op != Eq
+		line := e.NewLine
 		if e.Op == Del {
-			return uw.writeLine(e.OldLine)
+			line = e.OldLine
 		}
-		return uw.writeLine(e.NewLine)
+		return uw.writeLine(line, replace, showNewlineMark)
 	}
 	if _, err := uw.w.WriteString(e.Op.String()); err != nil {
 		return err
 	}
+	line := e.NewLine
 	if e.Op == Del {
-		return uw.writeLine(e.OldLine)
+		line = e.OldLine
 	}
-	return uw.writeLine(e.NewLine)
+	return uw.writeLine(line, false, false)
 }
 
-func (uw *unifiedWriter) writeLine(s string) error {
-	if _, err := uw.w.WriteString(s); err != nil {
-		return err
-	}
-	if len(s) > 0 && s[len(s)-1] != '\n' {
-		if _, err := uw.w.WriteString("\n\\ No newline at end of file\n"); err != nil {
+func (uw *unifiedWriter) writeLine(s string, replace bool, showNewlineMark bool) error {
+	hasNewline := len(s) > 0 && s[len(s)-1] == '\n'
+
+	if replace {
+		content := s
+		if hasNewline {
+			content = s[:len(s)-1]
+		}
+		if len(content) == 0 && hasNewline {
+			// Newline-only line (blank line): render as ↵
+			if _, err := uw.w.WriteRune('↵'); err != nil {
+				return err
+			}
+		} else {
+			for _, r := range content {
+				switch r {
+				case ' ':
+					if _, err := uw.w.WriteRune('·'); err != nil {
+						return err
+					}
+				case '\t':
+					if _, err := uw.w.WriteRune('→'); err != nil {
+						return err
+					}
+				default:
+					if _, err := uw.w.WriteRune(r); err != nil {
+						return err
+					}
+				}
+			}
+			if showNewlineMark {
+				if _, err := uw.w.WriteRune('↵'); err != nil {
+					return err
+				}
+			}
+		}
+		if _, err := uw.w.WriteString("\n"); err != nil {
 			return err
+		}
+	} else {
+		if _, err := uw.w.WriteString(s); err != nil {
+			return err
+		}
+		if !hasNewline {
+			if uw.conf.gutter {
+				if _, err := uw.w.WriteString("\n"); err != nil {
+					return err
+				}
+			} else {
+				if _, err := uw.w.WriteString("\n\\ No newline at end of file\n"); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	return nil
