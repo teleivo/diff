@@ -22,7 +22,7 @@ diff.Write(os.Stdout, edits)
 diff.Write(os.Stdout, edits, diff.WithGutter())
 ```
 
-Given an unformatted and a formatted DOT file:
+Given a DOT file before and after formatting with [dotx](https://github.com/teleivo/dot):
 
 ```dot
 // old.dot                           // new.dot
