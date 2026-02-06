@@ -425,10 +425,10 @@ func (uw *unifiedWriter) writeEdit(e Edit, oldLine int, showNewlineMark bool) er
 	return uw.writeLine(line, false, false)
 }
 
-func (uw *unifiedWriter) writeLine(s string, replace bool, showNewlineMark bool) error {
+func (uw *unifiedWriter) writeLine(s string, showWhitespace bool, showNewlineMark bool) error {
 	hasNewline := len(s) > 0 && s[len(s)-1] == '\n'
 
-	if replace {
+	if showWhitespace {
 		content := s
 		if hasNewline {
 			content = s[:len(s)-1]
