@@ -397,6 +397,10 @@ func hunkRange(start, count int) string {
 }
 
 func (uw *unifiedWriter) writeEdit(e Edit, oldLine int, showNewlineMark bool) error {
+	line := e.NewLine
+	if e.Op == Del {
+		line = e.OldLine
+	}
 	if uw.conf.gutter {
 		if e.Op != Ins {
 			if _, err := fmt.Fprintf(uw.w, "%*d ", uw.lineWidth, oldLine); err != nil {
@@ -413,19 +417,10 @@ func (uw *unifiedWriter) writeEdit(e Edit, oldLine int, showNewlineMark bool) er
 		if _, err := uw.w.WriteString(" │ "); err != nil {
 			return err
 		}
-		replace := e.Op != Eq
-		line := e.NewLine
-		if e.Op == Del {
-			line = e.OldLine
-		}
-		return uw.writeLine(line, replace, showNewlineMark)
+		return uw.writeLine(line, e.Op != Eq, showNewlineMark)
 	}
 	if _, err := uw.w.WriteString(e.Op.String()); err != nil {
 		return err
-	}
-	line := e.NewLine
-	if e.Op == Del {
-		line = e.OldLine
 	}
 	return uw.writeLine(line, false, false)
 }
