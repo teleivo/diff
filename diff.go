@@ -132,7 +132,19 @@ func Write(w io.Writer, edits []Edit, opts ...Option) error {
 	for _, opt := range opts {
 		opt(conf)
 	}
-	uw := &unifiedWriter{w: bufio.NewWriter(w), conf: conf, edits: edits, hunkStart: -1, hunkEnd: -1}
+	var lw int
+	if conf.gutter {
+		n := 0
+		for _, e := range edits {
+			if e.Op != Ins {
+				n++
+			}
+		}
+		for v := n; v > 0; v /= 10 {
+			lw++
+		}
+	}
+	uw := &unifiedWriter{w: bufio.NewWriter(w), conf: conf, edits: edits, firstHunk: true, lineWidth: lw, hunkStart: -1, hunkEnd: -1}
 	if err := uw.write(); err != nil {
 		return err
 	}
@@ -182,10 +194,13 @@ func shortestEdit(a, b []string) [][]int {
 // unifiedWriter writes edits as unified diff hunks. It groups changes into hunks, merging
 // hunks that are separated by fewer than 2*context equal lines.
 type unifiedWriter struct {
-	w       *bufio.Writer
-	conf    *config
-	edits   []Edit
-	eqCount int // consecutive equal lines since the last change
+	w         *bufio.Writer
+	conf      *config
+	edits     []Edit
+	lineWidth int // digit width of the largest old line number (for gutter padding)
+
+	firstHunk bool
+	eqCount   int // consecutive equal lines since the last change
 
 	lineOld int // current line number in the old sequence
 	lineNew int // current line number in the new sequence
@@ -319,6 +334,10 @@ func (uw *unifiedWriter) writeHunk(end int) error {
 		if err := writeHunkHeader(uw.w, uw.startOld, uw.countOld, uw.startNew, uw.countNew); err != nil {
 			return err
 		}
+	} else if !uw.firstHunk {
+		if _, err := fmt.Fprintf(uw.w, "───┼─── %d identical lines ───", uw.eqCount); err != nil {
+			return err
+		}
 	}
 
 	oldLine := uw.startOld
@@ -356,6 +375,7 @@ func (uw *unifiedWriter) writeHunk(end int) error {
 			oldLine++
 		}
 	}
+	uw.firstHunk = false
 	return nil
 }
 
@@ -378,11 +398,11 @@ func writeHunkHeader(w io.Writer, oldStart, oldCount, newStart, newCount int) er
 func (uw *unifiedWriter) writeEdit(e Edit, oldLine int, showNewlineMark bool) error {
 	if uw.conf.gutter {
 		if e.Op != Ins {
-			if _, err := fmt.Fprintf(uw.w, "%d ", oldLine); err != nil {
+			if _, err := fmt.Fprintf(uw.w, "%*d ", uw.lineWidth, oldLine); err != nil {
 				return err
 			}
 		} else {
-			if _, err := uw.w.WriteString("  "); err != nil {
+			if _, err := fmt.Fprintf(uw.w, "%*s", uw.lineWidth+1, ""); err != nil {
 				return err
 			}
 		}
