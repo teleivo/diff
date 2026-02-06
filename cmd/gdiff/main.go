@@ -28,10 +28,11 @@ func run(args []string, w io.Writer, wErr io.Writer) (int, error) {
 	flags := flag.NewFlagSet("gdiff", flag.ContinueOnError)
 	flags.SetOutput(wErr)
 	context := flags.Int("U", 3, "output NUM lines of unified context")
+	gutter := flags.Bool("gutter", false, "show line numbers and visible whitespace")
 	flags.Usage = func() {
 		_, _ = fmt.Fprintln(wErr, "gdiff computes the shortest edit script between two files")
 		_, _ = fmt.Fprintln(wErr, "")
-		_, _ = fmt.Fprintln(wErr, "usage: gdiff [-U NUM] file1 file2")
+		_, _ = fmt.Fprintln(wErr, "usage: gdiff [-U NUM] [-gutter] file1 file2")
 		_, _ = fmt.Fprintln(wErr, "")
 		flags.PrintDefaults()
 	}
@@ -52,7 +53,7 @@ func run(args []string, w io.Writer, wErr io.Writer) (int, error) {
 	oldFile := flags.Arg(0)
 	newFile := flags.Arg(1)
 
-	hasDiff, err := files(w, oldFile, newFile, *context)
+	hasDiff, err := files(w, oldFile, newFile, *context, *gutter)
 	if err != nil {
 		return 2, err
 	}
@@ -62,7 +63,7 @@ func run(args []string, w io.Writer, wErr io.Writer) (int, error) {
 	return 0, nil
 }
 
-func files(w io.Writer, oldFile, newFile string, context int) (bool, error) {
+func files(w io.Writer, oldFile, newFile string, context int, gutter bool) (bool, error) {
 	oldStat, err := os.Stat(oldFile)
 	if err != nil {
 		return false, err
@@ -94,10 +95,15 @@ func files(w io.Writer, oldFile, newFile string, context int) (bool, error) {
 		return false, nil
 	}
 
-	if err := writeFileHeader(w, oldFile, oldStat.ModTime(), newFile, newStat.ModTime()); err != nil {
-		return false, err
+	opts := []diff.Option{diff.WithContext(context)}
+	if gutter {
+		opts = append(opts, diff.WithGutter())
+	} else {
+		if err := writeFileHeader(w, oldFile, oldStat.ModTime(), newFile, newStat.ModTime()); err != nil {
+			return false, err
+		}
 	}
-	if err := diff.WriteUnified(w, edits, context); err != nil {
+	if err := diff.Write(w, edits, opts...); err != nil {
 		return false, err
 	}
 	return true, nil
