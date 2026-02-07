@@ -1,7 +1,6 @@
 # TODO
 
-* re-write using []Edit -> []Hunk pass
-* look for bugs
+* look for bugs in diff algo/Write algo
 
 * cli: add color output support - use ANSI escape sequences (e.g., `\033[31m` for red, `\033[32m` for
   green, `\033[0m` to reset). Only emit colors when output is a terminal. Detect with stdlib:
