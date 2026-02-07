@@ -658,3 +658,33 @@ func TestWrite(t *testing.T) {
 		})
 	}
 }
+
+func TestWriteGutterColor(t *testing.T) {
+	const (
+		red   = "\033[31m"
+		green = "\033[32m"
+		reset = "\033[0m"
+	)
+
+	edits := []diff.Edit{
+		{Op: diff.Eq, OldLine: "keep1\n", NewLine: "keep1\n"},
+		{Op: diff.Del, OldLine: "removed\n"},
+		{Op: diff.Ins, NewLine: "added\n"},
+		{Op: diff.Eq, OldLine: "keep2\n", NewLine: "keep2\n"},
+	}
+
+	want := "1   │ keep1\n" +
+		red + "2 - │ removed↵\n" + reset +
+		green + "  + │ added↵\n" + reset +
+		"3   │ keep2\n"
+
+	var buf bytes.Buffer
+	err := diff.Write(&buf, edits, diff.WithContext(1), diff.WithGutter(), diff.WithColor())
+	if err != nil {
+		t.Fatalf("Write() error: %v", err)
+	}
+	got := buf.String()
+	if got != want {
+		t.Errorf("Write() =\n%q\nwant:\n%q", got, want)
+	}
+}

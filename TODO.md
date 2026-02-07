@@ -2,12 +2,6 @@
 
 * look for bugs in diff algo/Write algo
 
-* cli: add color output support - use ANSI escape sequences (e.g., `\033[31m` for red, `\033[32m` for
-  green, `\033[0m` to reset). Only emit colors when output is a terminal. Detect with stdlib:
-  `fi, _ := os.Stdout.Stat(); isTerminal := (fi.Mode() & os.ModeCharDevice) != 0`. Allow override
-  via `--color=always` or `--color=never` flag. Common convention: red for deletions, green for
-  insertions
-
 * use dot/kitty image protocol to show an animation of it that works in ghostty
 
 * refactor: to linear space version (Section 4b of Myers paper) - current implementation uses O(D²)

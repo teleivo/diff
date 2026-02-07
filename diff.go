@@ -141,6 +141,7 @@ func shortestEdit(a, b []string) [][]int {
 type config struct {
 	context int
 	gutter  bool
+	color   bool
 }
 
 // Option configures how [Write] formats its output.
@@ -164,6 +165,14 @@ func WithContext(lines int) Option {
 func WithGutter() Option {
 	return func(conf *config) {
 		conf.gutter = true
+	}
+}
+
+// WithColor enables ANSI color output: deletions are red (\033[31m) and insertions are
+// green (\033[32m). The caller is responsible for terminal detection and NO_COLOR handling.
+func WithColor() Option {
+	return func(conf *config) {
+		conf.color = true
 	}
 }
 
@@ -383,6 +392,17 @@ func writeEdit(w *bufio.Writer, e Edit, oldLine int, conf *config, lineWidth int
 	if e.Op == Del {
 		line = e.OldLine
 	}
+	if conf.color && e.Op != Eq {
+		var err error
+		if e.Op == Del {
+			_, err = w.WriteString("\033[31m")
+		} else {
+			_, err = w.WriteString("\033[32m")
+		}
+		if err != nil {
+			return err
+		}
+	}
 	if conf.gutter {
 		if e.Op != Ins {
 			if _, err := fmt.Fprintf(w, "%*d ", lineWidth, oldLine); err != nil {
@@ -399,12 +419,26 @@ func writeEdit(w *bufio.Writer, e Edit, oldLine int, conf *config, lineWidth int
 		if _, err := w.WriteString(" │ "); err != nil {
 			return err
 		}
-		return writeLine(w, line, e.Op != Eq, conf)
+		if err := writeLine(w, line, e.Op != Eq, conf); err != nil {
+			return err
+		}
+		return writeReset(w, e.Op, conf)
 	}
 	if _, err := w.WriteString(e.Op.String()); err != nil {
 		return err
 	}
-	return writeLine(w, line, false, conf)
+	if err := writeLine(w, line, false, conf); err != nil {
+		return err
+	}
+	return writeReset(w, e.Op, conf)
+}
+
+func writeReset(w *bufio.Writer, op OpType, conf *config) error {
+	if conf.color && op != Eq {
+		_, err := w.WriteString("\033[0m")
+		return err
+	}
+	return nil
 }
 
 func writeLine(w *bufio.Writer, s string, showWhitespace bool, conf *config) error {
