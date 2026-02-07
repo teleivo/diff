@@ -20,6 +20,9 @@ diff.Write(os.Stdout, edits)
 
 // Write with gutter format (line numbers, visible whitespace)
 diff.Write(os.Stdout, edits, diff.WithGutter())
+
+// Write with ANSI color (red deletions, green insertions)
+diff.Write(os.Stdout, edits, diff.WithGutter(), diff.WithColor())
 ```
 
 Given a DOT file before and after formatting with [dotx](https://github.com/teleivo/dot):
