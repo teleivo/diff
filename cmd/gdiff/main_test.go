@@ -71,6 +71,7 @@ func TestFiles(t *testing.T) {
 		},
 	}
 
+	t.Setenv("NO_COLOR", "1")
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
 			var buf bytes.Buffer

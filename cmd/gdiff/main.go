@@ -103,6 +103,9 @@ func files(w io.Writer, oldFile, newFile string, context int, gutter bool) (bool
 			return false, err
 		}
 	}
+	if _, noColor := os.LookupEnv("NO_COLOR"); !noColor {
+		opts = append(opts, diff.WithColor())
+	}
 	if err := diff.Write(w, edits, opts...); err != nil {
 		return false, err
 	}
