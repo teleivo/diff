@@ -590,12 +590,26 @@ func TestWrite(t *testing.T) {
 				{Op: diff.Eq, OldLine: "suffix\n", NewLine: "suffix\n"},
 			},
 			context:     3,
-			wantUnified: "@@ -1,4 +2,4 @@\n prefix\n \tindented\n-old\n+new\n suffix\n",
+			wantUnified: "@@ -1,4 +1,4 @@\n prefix\n \tindented\n-old\n+new\n suffix\n",
 			wantGutter: "1   │ prefix\n" +
 				"2   │ \tindented\n" +
 				"3 - │ old↵\n" +
 				"  + │ new↵\n" +
 				"4   │ suffix\n",
+		},
+		"InsMiddleContext3": {
+			edits: []diff.Edit{
+				{Op: diff.Eq, OldLine: "a\n", NewLine: "a\n"},
+				{Op: diff.Eq, OldLine: "b\n", NewLine: "b\n"},
+				{Op: diff.Ins, NewLine: "new\n"},
+				{Op: diff.Eq, OldLine: "c\n", NewLine: "c\n"},
+			},
+			context:     3,
+			wantUnified: "@@ -1,3 +1,4 @@\n a\n b\n+new\n c\n",
+			wantGutter: "1   │ a\n" +
+				"2   │ b\n" +
+				"  + │ new↵\n" +
+				"3   │ c\n",
 		},
 		"GutterCollapsedContext": {
 			edits: []diff.Edit{
@@ -616,7 +630,7 @@ func TestWrite(t *testing.T) {
 			},
 			context: 3,
 			// 10 equal lines between changes, context=3: show 3 after first, 3 before second, collapse 4
-			wantUnified: "@@ -1,4 +1,4 @@\n-func foo() {\n+func foo()  {\n     a\n     b\n     c\n@@ -9,4 +11,4 @@\n     h\n     i\n     j\n-}  \n+}\n",
+			wantUnified: "@@ -1,4 +1,4 @@\n-func foo() {\n+func foo()  {\n     a\n     b\n     c\n@@ -9,4 +9,4 @@\n     h\n     i\n     j\n-}  \n+}\n",
 			wantGutter: " 1 - │ func·foo()·{↵\n" +
 				"   + │ func·foo()··{↵\n" +
 				" 2   │     a\n" +

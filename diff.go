@@ -218,7 +218,7 @@ func buildHunks(edits []Edit, context int) (hunks []hunk, maxOldLine int) {
 	var startNew int // start line in the new sequence for the current hunk (1-indexed)
 	var countOld int // number of old lines in the current hunk
 	var countNew int // number of new lines in the current hunk
-	var eqCount int // consecutive equal lines since the last change
+	var eqCount int  // consecutive equal lines since the last change
 
 	for i, edit := range edits {
 		switch edit.Op {
@@ -287,7 +287,7 @@ func buildHunks(edits []Edit, context int) (hunks []hunk, maxOldLine int) {
 				countOld += context
 				countNew += context
 				if context > 0 {
-					startOld = lineOld
+					startOld = lineOld - context + 1
 				}
 				startNew = lineNew - context
 			} else { // part of an existing hunk
@@ -308,7 +308,7 @@ func buildHunks(edits []Edit, context int) (hunks []hunk, maxOldLine int) {
 				countOld += context
 				countNew += context
 				if context > 0 {
-					startNew = lineNew
+					startNew = lineNew - context + 1
 				}
 				startOld = lineOld - context
 			} else { // part of an existing hunk
