@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"io"
 	"slices"
+
+	"github.com/teleivo/diff/internal/myers"
 )
 
 // OpType represents the type of edit operation.
@@ -216,40 +218,10 @@ func (df *differ) backward(d, maxD int, from, to point, vf, vb []int) (point, po
 // the full V array of length 2*(M+N)+1 for each of the D iterations. This could be reduced
 // to O(D²) by only cloning the active diagonals [-d, d].
 func shortestEditQuadratic(oldLines, newLines []string) []Edit {
-	n := len(oldLines)
-	m := len(newLines)
-	maxD := n + m
-	if maxD == 0 {
+	if len(oldLines)+len(newLines) == 0 {
 		return nil
 	}
-
-	var trace [][]int
-	v := make([]int, 2*maxD+1)
-
-	for d := range maxD + 1 {
-		trace = append(trace, slices.Clone(v))
-		for k := -d; k <= d; k = k + 2 {
-			if k > n || k < -m { // skip out of bounds diagonals
-				continue
-			}
-			i := k + maxD
-			var x int
-			if k == -d || (k != d && v[i-1] < v[i+1]) {
-				x = v[i+1] // down i.e. insert
-			} else {
-				x = v[i-1] + 1 // right i.e. delete
-			}
-			y := x - k
-			for x < n && y < m && oldLines[x] == newLines[y] { // advance on diagonal
-				x++
-				y++
-			}
-			v[i] = x
-			if x >= n && y >= m {
-				return backtrack(trace, oldLines, newLines, maxD)
-			}
-		}
-	}
+	trace, maxD := myers.Trace(oldLines, newLines)
 	return backtrack(trace, oldLines, newLines, maxD)
 }
 
