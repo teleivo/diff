@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
+	"runtime/pprof"
 	"strings"
 	"time"
 
@@ -29,6 +31,8 @@ func run(args []string, w io.Writer, wErr io.Writer) (int, error) {
 	flags.SetOutput(wErr)
 	context := flags.Int("U", 3, "output NUM lines of unified context")
 	gutter := flags.Bool("gutter", false, "show line numbers and visible whitespace")
+	cpuProfile := flags.String("cpuprofile", "", "write cpu profile to `file`")
+	memProfile := flags.String("memprofile", "", "write memory profile to `file`")
 	flags.Usage = func() {
 		_, _ = fmt.Fprintln(wErr, "gdiff computes the shortest edit script between two files")
 		_, _ = fmt.Fprintln(wErr, "")
@@ -53,7 +57,12 @@ func run(args []string, w io.Writer, wErr io.Writer) (int, error) {
 	oldFile := flags.Arg(0)
 	newFile := flags.Arg(1)
 
-	hasDiff, err := files(w, oldFile, newFile, *context, *gutter)
+	var hasDiff bool
+	err = profile(func() error {
+		var ferr error
+		hasDiff, ferr = files(w, oldFile, newFile, *context, *gutter)
+		return ferr
+	}, *cpuProfile, *memProfile)
 	if err != nil {
 		return 2, err
 	}
@@ -61,6 +70,39 @@ func run(args []string, w io.Writer, wErr io.Writer) (int, error) {
 		return 1, nil
 	}
 	return 0, nil
+}
+
+func profile(fn func() error, cpuProfile, memProfile string) error {
+	if cpuProfile != "" {
+		f, err := os.Create(cpuProfile)
+		if err != nil {
+			return fmt.Errorf("could not create CPU profile: %v", err)
+		}
+		defer func() { _ = f.Close() }()
+		if err := pprof.StartCPUProfile(f); err != nil {
+			return fmt.Errorf("could not start CPU profile: %v", err)
+		}
+		defer pprof.StopCPUProfile()
+	}
+
+	err := fn()
+	if err != nil {
+		return err
+	}
+
+	if memProfile != "" {
+		f, err := os.Create(memProfile)
+		if err != nil {
+			return fmt.Errorf("could not create memory profile: %v", err)
+		}
+		defer func() { _ = f.Close() }()
+		runtime.GC()
+		if err := pprof.WriteHeapProfile(f); err != nil {
+			return fmt.Errorf("could not write memory profile: %v", err)
+		}
+	}
+
+	return nil
 }
 
 func files(w io.Writer, oldFile, newFile string, context int, gutter bool) (bool, error) {

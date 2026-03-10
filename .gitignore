@@ -21,3 +21,9 @@ go.work.sum
 _research/
 /gdiff
 .claude/
+*.prof
+*.pprof
+*.bench
+fit.log
+a.txt
+b.txt

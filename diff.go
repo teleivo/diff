@@ -1,10 +1,10 @@
 // Package diff implements the Myers diff algorithm for computing the shortest
 // edit script (SES) between two sequences.
 //
-// The algorithm is described in Eugene W. Myers' paper "An O(ND) Difference
-// Algorithm and Its Variations" (1986). It runs in O(ND) time where N is the
-// sum of the lengths of the two sequences and D is the size of the minimum
-// edit script.
+// It uses the linear space variant (Section 4b) described in Eugene W. Myers'
+// paper "An O(ND) Difference Algorithm and Its Variations" (1986). It runs in
+// O(ND) time and O(N) space where N is the sum of the lengths of the two
+// sequences and D is the size of the minimum edit script.
 package diff
 
 import (
@@ -50,17 +50,214 @@ type Edit struct {
 
 // Lines computes the shortest edit script to transform oldLines into newLines.
 // It returns a slice of [Edit] operations that, when applied in order, convert oldLines
-// to newLines.
+// to newLines. It uses the linear space variant of the Myers algorithm (Section 4b of the
+// paper), which runs in O(ND) time and O(N) space.
 func Lines(oldLines, newLines []string) []Edit {
+	return shortestEditLinear(oldLines, newLines)
+}
+
+// shortestEditLinear computes the trace using the linear space variant of the Myers
+// algorithm (Section 4b of the paper). It uses O(N) space via divide-and-conquer to find
+// the middle snake.
+type differ struct {
+	vf, vb   []int
+	oldLines []string
+	newLines []string
+}
+
+func shortestEditLinear(oldLines, newLines []string) []Edit {
+	n := len(oldLines)
+	m := len(newLines)
+	size := n + m
+	if size == 0 {
+		return nil
+	}
+
+	maxD := (size + 1) / 2
+	dif := &differ{
+		vf:       make([]int, 2*maxD+1),
+		vb:       make([]int, 2*maxD+1),
+		oldLines: oldLines,
+		newLines: newLines,
+	}
+	var points []point
+	points = dif.findPaths(point{0, 0}, point{n, m}, points)
+
+	edits := make([]Edit, 0, size)
+	for i := 0; i+1 < len(points); i++ {
+		p1, p2 := points[i], points[i+1]
+		for p1.x < p2.x && p1.y < p2.y && oldLines[p1.x] == newLines[p1.y] { // advance on diagonal
+			edits = append(edits, Edit{Op: Eq, OldLine: oldLines[p1.x], NewLine: newLines[p1.y]})
+			p1.x++
+			p1.y++
+		}
+		if p2.x-p1.x > p2.y-p1.y { // right
+			edits = append(edits, Edit{Op: Del, OldLine: oldLines[p1.x]})
+			p1.x++
+		} else if p2.x-p1.x < p2.y-p1.y { // down
+			edits = append(edits, Edit{Op: Ins, NewLine: newLines[p1.y]})
+			p1.y++
+		}
+		for p1.x < p2.x && p1.y < p2.y && oldLines[p1.x] == newLines[p1.y] { // advance on diagonal
+			edits = append(edits, Edit{Op: Eq, OldLine: oldLines[p1.x], NewLine: newLines[p1.y]})
+			p1.x++
+			p1.y++
+		}
+	}
+	return edits
+}
+
+func (df *differ) findPaths(from, to point, points []point) []point {
+	start, end, ok := df.midpoint(from, to)
+	if !ok {
+		return points
+	}
+
+	points = df.findPaths(from, start, points)
+	points = append(points, start, end)
+	points = df.findPaths(end, to, points)
+	return points
+}
+
+type point struct {
+	x, y int
+}
+
+func (df *differ) midpoint(from, to point) (point, point, bool) {
+	size := to.x - from.x + to.y - from.y
+	if size == 0 {
+		return point{}, point{}, false
+	}
+
+	maxD := (size + 1) / 2
+	vf := df.vf[:2*maxD+1]
+	vf[1+maxD] = from.x
+	vb := df.vb[:2*maxD+1]
+	vb[1+maxD] = to.y
+	for d := range maxD + 1 {
+		if start, end, ok := df.forward(d, maxD, from, to, vf, vb); ok {
+			return start, end, ok
+		}
+		if start, end, ok := df.backward(d, maxD, from, to, vf, vb); ok {
+			return start, end, ok
+		}
+	}
+	return point{}, point{}, false
+}
+
+func (df *differ) forward(d, maxD int, from, to point, vf, vb []int) (point, point, bool) {
+	delta := (to.x - from.x) - (to.y - from.y)
+
+	for k := -d; k <= d; k = k + 2 {
+		c := k - delta
+		i := k + maxD
+		var prevX, x int
+		if k == -d || (k != d && vf[i-1] < vf[i+1]) {
+			x = vf[i+1] // down i.e. insert
+			prevX = x
+		} else {
+			prevX = vf[i-1]
+			x = prevX + 1 // right i.e. delete
+		}
+		y := from.y + x - from.x - k
+		var prevY int
+		if d == 0 || prevX != x {
+			prevY = y
+		} else {
+			prevY = y - 1
+		}
+		for x < to.x && y < to.y && df.oldLines[x] == df.newLines[y] { // advance on diagonal
+			x++
+			y++
+		}
+		vf[i] = x
+		if delta%2 != 0 && (c >= -(d-1) && c <= d-1) && y >= vb[c+maxD] { // odd delta and overlap with last backward pass
+			return point{prevX, prevY}, point{x, y}, true
+		}
+	}
+	return point{}, point{}, false
+}
+
+func (df *differ) backward(d, maxD int, from, to point, vf, vb []int) (point, point, bool) {
+	delta := (to.x - from.x) - (to.y - from.y)
+
+	for c := d; c >= -d; c = c - 2 {
+		k := c + delta
+		i := c + maxD
+		var prevY, y int
+		if c == -d || (c != d && vb[i-1] > vb[i+1]) {
+			y = vb[i+1] // right i.e. delete
+			prevY = y
+		} else {
+			prevY = vb[i-1]
+			y = prevY - 1 // down i.e. insert
+		}
+		x := from.x + y - from.y + k
+		var prevX int
+		if d == 0 || prevY != y {
+			prevX = x
+		} else {
+			prevX = x + 1
+		}
+		for x > from.x && y > from.y && df.oldLines[x-1] == df.newLines[y-1] { // reverse on diagonal
+			x--
+			y--
+		}
+		vb[i] = y
+		if delta%2 == 0 && (k >= -d && k <= d) && x <= vf[k+maxD] { // even delta and overlap with last forward pass
+			return point{x, y}, point{prevX, prevY}, true
+		}
+	}
+	return point{}, point{}, false
+}
+
+// shortestEditQuadratic computes the shortest edit script to transform a into b using the
+// quadratic space variant of the Myers algorithm. It uses O(D*(M+N)) space since it clones
+// the full V array of length 2*(M+N)+1 for each of the D iterations. This could be reduced
+// to O(D²) by only cloning the active diagonals [-d, d].
+func shortestEditQuadratic(oldLines, newLines []string) []Edit {
 	n := len(oldLines)
 	m := len(newLines)
 	maxD := n + m
 	if maxD == 0 {
 		return nil
 	}
-	var edits []Edit
-	trace := shortestEdit(oldLines, newLines)
+
+	var trace [][]int
+	v := make([]int, 2*maxD+1)
+
+	for d := range maxD + 1 {
+		trace = append(trace, slices.Clone(v))
+		for k := -d; k <= d; k = k + 2 {
+			if k > n || k < -m { // skip out of bounds diagonals
+				continue
+			}
+			i := k + maxD
+			var x int
+			if k == -d || (k != d && v[i-1] < v[i+1]) {
+				x = v[i+1] // down i.e. insert
+			} else {
+				x = v[i-1] + 1 // right i.e. delete
+			}
+			y := x - k
+			for x < n && y < m && oldLines[x] == newLines[y] { // advance on diagonal
+				x++
+				y++
+			}
+			v[i] = x
+			if x >= n && y >= m {
+				return backtrack(trace, oldLines, newLines, maxD)
+			}
+		}
+	}
+	return backtrack(trace, oldLines, newLines, maxD)
+}
+
+func backtrack(trace [][]int, oldLines, newLines []string, maxD int) []Edit {
+	n := len(oldLines)
+	m := len(newLines)
 	x, y := n, m
+	var edits []Edit
 	for d := len(trace) - 1; d >= 0; d-- {
 		v := trace[d]
 		k := x - y
@@ -78,7 +275,7 @@ func Lines(oldLines, newLines []string) []Edit {
 		prevX = v[prevK+maxD]
 		prevY = prevX - prevK
 
-		for x > prevX && y > prevY { // advance on snake i.e. diagonal
+		for x > prevX && y > prevY { // advance on diagonal
 			edits = append(edits, Edit{Op: Eq, OldLine: oldLines[x-1], NewLine: newLines[y-1]})
 			x--
 			y--
@@ -96,46 +293,6 @@ func Lines(oldLines, newLines []string) []Edit {
 
 	slices.Reverse(edits)
 	return edits
-}
-
-// shortestEdit computes the trace of furthest reaching D-paths for transforming
-// a into b. Each element in the returned slice represents the V array state
-// before each iteration d, which is used to reconstruct the edit script.
-func shortestEdit(a, b []string) [][]int {
-	n := len(a)
-	m := len(b)
-	maxD := n + m
-	var trace [][]int
-	if maxD == 0 {
-		return trace
-	}
-	v := make([]int, 2*maxD+1)
-
-	for d := range maxD + 1 {
-		trace = append(trace, slices.Clone(v))
-		for k := -d; k <= d; k = k + 2 {
-			if k > n || k < -m { // skip out of bounds diagonals
-				continue
-			}
-			i := k + maxD
-			var x int
-			if k == -d || (k != d && v[i-1] < v[i+1]) {
-				x = v[i+1] // down i.e. insert
-			} else {
-				x = v[i-1] + 1 // right i.e. delete
-			}
-			y := x - k
-			for x < n && y < m && a[x] == b[y] { // advance on snake i.e. diagonal
-				x++
-				y++
-			}
-			v[i] = x
-			if x >= n && y >= m {
-				return trace
-			}
-		}
-	}
-	return trace
 }
 
 type config struct {

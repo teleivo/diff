@@ -1,104 +1,116 @@
-package diff_test
+package diff
 
 import (
 	"bytes"
+	"fmt"
 	"slices"
+	"strings"
 	"testing"
-
-	"github.com/teleivo/diff"
 )
 
 func TestLines(t *testing.T) {
 	tests := map[string]struct {
 		oldLines []string
 		newLines []string
-		want     []diff.Edit
+		want     []Edit
 	}{
 		"BothEmpty": {
 			oldLines: []string{},
 			newLines: []string{},
-			want:     []diff.Edit{},
+			want:     []Edit{},
 		},
 		"FirstEmpty": {
 			oldLines: []string{},
 			newLines: []string{"A", "B"},
-			want: []diff.Edit{
-				{Op: diff.Ins, NewLine: "A"},
-				{Op: diff.Ins, NewLine: "B"},
+			want: []Edit{
+				{Op: Ins, NewLine: "A"},
+				{Op: Ins, NewLine: "B"},
 			},
 		},
 		"SecondEmpty": {
 			oldLines: []string{"A", "B"},
 			newLines: []string{},
-			want: []diff.Edit{
-				{Op: diff.Del, OldLine: "A"},
-				{Op: diff.Del, OldLine: "B"},
+			want: []Edit{
+				{Op: Del, OldLine: "A"},
+				{Op: Del, OldLine: "B"},
 			},
 		},
 		"Equal": {
 			oldLines: []string{"A", "B", "C"},
 			newLines: []string{"A", "B", "C"},
-			want: []diff.Edit{
-				{Op: diff.Eq, OldLine: "A", NewLine: "A"},
-				{Op: diff.Eq, OldLine: "B", NewLine: "B"},
-				{Op: diff.Eq, OldLine: "C", NewLine: "C"},
+			want: []Edit{
+				{Op: Eq, OldLine: "A", NewLine: "A"},
+				{Op: Eq, OldLine: "B", NewLine: "B"},
+				{Op: Eq, OldLine: "C", NewLine: "C"},
 			},
 		},
 		"CompletelyDifferent": {
 			oldLines: []string{"A", "B"},
 			newLines: []string{"C", "D"},
-			want: []diff.Edit{
-				{Op: diff.Del, OldLine: "A"},
-				{Op: diff.Del, OldLine: "B"},
-				{Op: diff.Ins, NewLine: "C"},
-				{Op: diff.Ins, NewLine: "D"},
+			want: []Edit{
+				{Op: Del, OldLine: "A"},
+				{Op: Del, OldLine: "B"},
+				{Op: Ins, NewLine: "C"},
+				{Op: Ins, NewLine: "D"},
 			},
 		},
 		"CommonPrefix": {
 			oldLines: []string{"A", "B", "C", "X"},
 			newLines: []string{"A", "B", "C", "Y"},
-			want: []diff.Edit{
-				{Op: diff.Eq, OldLine: "A", NewLine: "A"},
-				{Op: diff.Eq, OldLine: "B", NewLine: "B"},
-				{Op: diff.Eq, OldLine: "C", NewLine: "C"},
-				{Op: diff.Del, OldLine: "X"},
-				{Op: diff.Ins, NewLine: "Y"},
+			want: []Edit{
+				{Op: Eq, OldLine: "A", NewLine: "A"},
+				{Op: Eq, OldLine: "B", NewLine: "B"},
+				{Op: Eq, OldLine: "C", NewLine: "C"},
+				{Op: Del, OldLine: "X"},
+				{Op: Ins, NewLine: "Y"},
 			},
 		},
 		"CommonSuffix": {
 			oldLines: []string{"X", "A", "B", "C"},
 			newLines: []string{"Y", "A", "B", "C"},
-			want: []diff.Edit{
-				{Op: diff.Del, OldLine: "X"},
-				{Op: diff.Ins, NewLine: "Y"},
-				{Op: diff.Eq, OldLine: "A", NewLine: "A"},
-				{Op: diff.Eq, OldLine: "B", NewLine: "B"},
-				{Op: diff.Eq, OldLine: "C", NewLine: "C"},
+			want: []Edit{
+				{Op: Del, OldLine: "X"},
+				{Op: Ins, NewLine: "Y"},
+				{Op: Eq, OldLine: "A", NewLine: "A"},
+				{Op: Eq, OldLine: "B", NewLine: "B"},
+				{Op: Eq, OldLine: "C", NewLine: "C"},
 			},
 		},
 		"PaperExample": {
 			oldLines: []string{"A", "B", "C", "A", "B", "B", "A"},
 			newLines: []string{"C", "B", "A", "B", "A", "C"},
-			want: []diff.Edit{
-				{Op: diff.Del, OldLine: "A"},
-				{Op: diff.Del, OldLine: "B"},
-				{Op: diff.Eq, OldLine: "C", NewLine: "C"},
-				{Op: diff.Ins, NewLine: "B"},
-				{Op: diff.Eq, OldLine: "A", NewLine: "A"},
-				{Op: diff.Eq, OldLine: "B", NewLine: "B"},
-				{Op: diff.Del, OldLine: "B"},
-				{Op: diff.Eq, OldLine: "A", NewLine: "A"},
-				{Op: diff.Ins, NewLine: "C"},
+			want: []Edit{
+				{Op: Del, OldLine: "A"},
+				{Op: Del, OldLine: "B"},
+				{Op: Eq, OldLine: "C", NewLine: "C"},
+				{Op: Ins, NewLine: "B"},
+				{Op: Eq, OldLine: "A", NewLine: "A"},
+				{Op: Eq, OldLine: "B", NewLine: "B"},
+				{Op: Del, OldLine: "B"},
+				{Op: Eq, OldLine: "A", NewLine: "A"},
+				{Op: Ins, NewLine: "C"},
 			},
 		},
 	}
 
+	algorithms := []struct {
+		name string
+		fn   func([]string, []string) []Edit
+	}{
+		{"Linear", shortestEditLinear},
+		{"Quadratic", shortestEditQuadratic},
+	}
+
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			got := diff.Lines(test.oldLines, test.newLines)
-			if !slices.Equal(got, test.want) {
-				t.Errorf("diff.Lines(%v, %v):\ngot:  %v\nwant: %v",
-					test.oldLines, test.newLines, got, test.want)
+			for _, algo := range algorithms {
+				t.Run(algo.name, func(t *testing.T) {
+					got := algo.fn(test.oldLines, test.newLines)
+					if !slices.Equal(got, test.want) {
+						t.Errorf("%s(%v, %v):\ngot:  %v\nwant: %v",
+							algo.name, test.oldLines, test.newLines, got, test.want)
+					}
+				})
 			}
 		})
 	}
@@ -106,7 +118,7 @@ func TestLines(t *testing.T) {
 
 func TestWrite(t *testing.T) {
 	tests := map[string]struct {
-		edits       []diff.Edit
+		edits       []Edit
 		context     int
 		wantUnified string
 		wantGutter  string
@@ -117,25 +129,25 @@ func TestWrite(t *testing.T) {
 			wantGutter:  "",
 		},
 		"OnlyEqual": {
-			edits: []diff.Edit{
-				{Op: diff.Eq, OldLine: "same\n", NewLine: "same\n"},
+			edits: []Edit{
+				{Op: Eq, OldLine: "same\n", NewLine: "same\n"},
 			},
 			wantUnified: "",
 			wantGutter:  "",
 		},
 		"DelStartContext0": {
-			edits: []diff.Edit{
-				{Op: diff.Del, OldLine: "removed\n"},
+			edits: []Edit{
+				{Op: Del, OldLine: "removed\n"},
 			},
 			context:     0,
 			wantUnified: "@@ -1 +0,0 @@\n-removed\n",
 			wantGutter:  "1 - │ removed↵\n",
 		},
 		"DelStartContext1": {
-			edits: []diff.Edit{
-				{Op: diff.Del, OldLine: "first\n"},
-				{Op: diff.Eq, OldLine: "second\n", NewLine: "second\n"},
-				{Op: diff.Eq, OldLine: "third\n", NewLine: "third\n"},
+			edits: []Edit{
+				{Op: Del, OldLine: "first\n"},
+				{Op: Eq, OldLine: "second\n", NewLine: "second\n"},
+				{Op: Eq, OldLine: "third\n", NewLine: "third\n"},
 			},
 			context:     1,
 			wantUnified: "@@ -1,2 +1 @@\n-first\n second\n",
@@ -143,20 +155,20 @@ func TestWrite(t *testing.T) {
 				"2   │ second\n",
 		},
 		"DelMiddleContext0": {
-			edits: []diff.Edit{
-				{Op: diff.Eq, OldLine: "line1\n", NewLine: "line1\n"},
-				{Op: diff.Del, OldLine: "line2\n"},
-				{Op: diff.Eq, OldLine: "line3\n", NewLine: "line3\n"},
+			edits: []Edit{
+				{Op: Eq, OldLine: "line1\n", NewLine: "line1\n"},
+				{Op: Del, OldLine: "line2\n"},
+				{Op: Eq, OldLine: "line3\n", NewLine: "line3\n"},
 			},
 			context:     0,
 			wantUnified: "@@ -2 +1,0 @@\n-line2\n",
 			wantGutter:  "2 - │ line2↵\n",
 		},
 		"DelMiddleContext1": {
-			edits: []diff.Edit{
-				{Op: diff.Eq, OldLine: "before\n", NewLine: "before\n"},
-				{Op: diff.Del, OldLine: "removed\n"},
-				{Op: diff.Eq, OldLine: "after\n", NewLine: "after\n"},
+			edits: []Edit{
+				{Op: Eq, OldLine: "before\n", NewLine: "before\n"},
+				{Op: Del, OldLine: "removed\n"},
+				{Op: Eq, OldLine: "after\n", NewLine: "after\n"},
 			},
 			context:     1,
 			wantUnified: "@@ -1,3 +1,2 @@\n before\n-removed\n after\n",
@@ -165,10 +177,10 @@ func TestWrite(t *testing.T) {
 				"3   │ after\n",
 		},
 		"DelMiddleContext5": {
-			edits: []diff.Edit{
-				{Op: diff.Eq, OldLine: "before\n", NewLine: "before\n"},
-				{Op: diff.Del, OldLine: "removed\n"},
-				{Op: diff.Eq, OldLine: "after\n", NewLine: "after\n"},
+			edits: []Edit{
+				{Op: Eq, OldLine: "before\n", NewLine: "before\n"},
+				{Op: Del, OldLine: "removed\n"},
+				{Op: Eq, OldLine: "after\n", NewLine: "after\n"},
 			},
 			context:     5,
 			wantUnified: "@@ -1,3 +1,2 @@\n before\n-removed\n after\n",
@@ -177,19 +189,19 @@ func TestWrite(t *testing.T) {
 				"3   │ after\n",
 		},
 		"DelEndContext0": {
-			edits: []diff.Edit{
-				{Op: diff.Eq, OldLine: "line1\n", NewLine: "line1\n"},
-				{Op: diff.Del, OldLine: "line2\n"},
+			edits: []Edit{
+				{Op: Eq, OldLine: "line1\n", NewLine: "line1\n"},
+				{Op: Del, OldLine: "line2\n"},
 			},
 			context:     0,
 			wantUnified: "@@ -2 +1,0 @@\n-line2\n",
 			wantGutter:  "2 - │ line2↵\n",
 		},
 		"DelEndContext1": {
-			edits: []diff.Edit{
-				{Op: diff.Eq, OldLine: "first\n", NewLine: "first\n"},
-				{Op: diff.Eq, OldLine: "second\n", NewLine: "second\n"},
-				{Op: diff.Del, OldLine: "third\n"},
+			edits: []Edit{
+				{Op: Eq, OldLine: "first\n", NewLine: "first\n"},
+				{Op: Eq, OldLine: "second\n", NewLine: "second\n"},
+				{Op: Del, OldLine: "third\n"},
 			},
 			context:     1,
 			wantUnified: "@@ -2,2 +2 @@\n second\n-third\n",
@@ -197,18 +209,18 @@ func TestWrite(t *testing.T) {
 				"3 - │ third↵\n",
 		},
 		"InsStartContext0": {
-			edits: []diff.Edit{
-				{Op: diff.Ins, NewLine: "added\n"},
+			edits: []Edit{
+				{Op: Ins, NewLine: "added\n"},
 			},
 			context:     0,
 			wantUnified: "@@ -0,0 +1 @@\n+added\n",
 			wantGutter:  "  + │ added↵\n",
 		},
 		"InsStartContext1": {
-			edits: []diff.Edit{
-				{Op: diff.Ins, NewLine: "first\n"},
-				{Op: diff.Eq, OldLine: "second\n", NewLine: "second\n"},
-				{Op: diff.Eq, OldLine: "third\n", NewLine: "third\n"},
+			edits: []Edit{
+				{Op: Ins, NewLine: "first\n"},
+				{Op: Eq, OldLine: "second\n", NewLine: "second\n"},
+				{Op: Eq, OldLine: "third\n", NewLine: "third\n"},
 			},
 			context:     1,
 			wantUnified: "@@ -1 +1,2 @@\n+first\n second\n",
@@ -216,20 +228,20 @@ func TestWrite(t *testing.T) {
 				"1   │ second\n",
 		},
 		"InsMiddleContext0": {
-			edits: []diff.Edit{
-				{Op: diff.Eq, OldLine: "line1\n", NewLine: "line1\n"},
-				{Op: diff.Ins, NewLine: "line2\n"},
-				{Op: diff.Eq, OldLine: "line3\n", NewLine: "line3\n"},
+			edits: []Edit{
+				{Op: Eq, OldLine: "line1\n", NewLine: "line1\n"},
+				{Op: Ins, NewLine: "line2\n"},
+				{Op: Eq, OldLine: "line3\n", NewLine: "line3\n"},
 			},
 			context:     0,
 			wantUnified: "@@ -1,0 +2 @@\n+line2\n",
 			wantGutter:  "  + │ line2↵\n",
 		},
 		"InsMiddleContext1": {
-			edits: []diff.Edit{
-				{Op: diff.Eq, OldLine: "before\n", NewLine: "before\n"},
-				{Op: diff.Ins, NewLine: "added\n"},
-				{Op: diff.Eq, OldLine: "after\n", NewLine: "after\n"},
+			edits: []Edit{
+				{Op: Eq, OldLine: "before\n", NewLine: "before\n"},
+				{Op: Ins, NewLine: "added\n"},
+				{Op: Eq, OldLine: "after\n", NewLine: "after\n"},
 			},
 			context:     1,
 			wantUnified: "@@ -1,2 +1,3 @@\n before\n+added\n after\n",
@@ -238,19 +250,19 @@ func TestWrite(t *testing.T) {
 				"2   │ after\n",
 		},
 		"InsEndContext0": {
-			edits: []diff.Edit{
-				{Op: diff.Eq, OldLine: "line1\n", NewLine: "line1\n"},
-				{Op: diff.Ins, NewLine: "line2\n"},
+			edits: []Edit{
+				{Op: Eq, OldLine: "line1\n", NewLine: "line1\n"},
+				{Op: Ins, NewLine: "line2\n"},
 			},
 			context:     0,
 			wantUnified: "@@ -1,0 +2 @@\n+line2\n",
 			wantGutter:  "  + │ line2↵\n",
 		},
 		"InsEndContext1": {
-			edits: []diff.Edit{
-				{Op: diff.Eq, OldLine: "first\n", NewLine: "first\n"},
-				{Op: diff.Eq, OldLine: "second\n", NewLine: "second\n"},
-				{Op: diff.Ins, NewLine: "third\n"},
+			edits: []Edit{
+				{Op: Eq, OldLine: "first\n", NewLine: "first\n"},
+				{Op: Eq, OldLine: "second\n", NewLine: "second\n"},
+				{Op: Ins, NewLine: "third\n"},
 			},
 			context:     1,
 			wantUnified: "@@ -2 +2,2 @@\n second\n+third\n",
@@ -258,9 +270,9 @@ func TestWrite(t *testing.T) {
 				"  + │ third↵\n",
 		},
 		"DelInsStartContext0": {
-			edits: []diff.Edit{
-				{Op: diff.Del, OldLine: "old\n"},
-				{Op: diff.Ins, NewLine: "new\n"},
+			edits: []Edit{
+				{Op: Del, OldLine: "old\n"},
+				{Op: Ins, NewLine: "new\n"},
 			},
 			context:     0,
 			wantUnified: "@@ -1 +1 @@\n-old\n+new\n",
@@ -268,10 +280,10 @@ func TestWrite(t *testing.T) {
 				"  + │ new↵\n",
 		},
 		"DelInsStartContext1": {
-			edits: []diff.Edit{
-				{Op: diff.Del, OldLine: "old\n"},
-				{Op: diff.Ins, NewLine: "new\n"},
-				{Op: diff.Eq, OldLine: "keep\n", NewLine: "keep\n"},
+			edits: []Edit{
+				{Op: Del, OldLine: "old\n"},
+				{Op: Ins, NewLine: "new\n"},
+				{Op: Eq, OldLine: "keep\n", NewLine: "keep\n"},
 			},
 			context:     1,
 			wantUnified: "@@ -1,2 +1,2 @@\n-old\n+new\n keep\n",
@@ -280,11 +292,11 @@ func TestWrite(t *testing.T) {
 				"2   │ keep\n",
 		},
 		"DelInsMiddleContext0": {
-			edits: []diff.Edit{
-				{Op: diff.Eq, OldLine: "keep1\n", NewLine: "keep1\n"},
-				{Op: diff.Del, OldLine: "removed\n"},
-				{Op: diff.Ins, NewLine: "added\n"},
-				{Op: diff.Eq, OldLine: "keep2\n", NewLine: "keep2\n"},
+			edits: []Edit{
+				{Op: Eq, OldLine: "keep1\n", NewLine: "keep1\n"},
+				{Op: Del, OldLine: "removed\n"},
+				{Op: Ins, NewLine: "added\n"},
+				{Op: Eq, OldLine: "keep2\n", NewLine: "keep2\n"},
 			},
 			context:     0,
 			wantUnified: "@@ -2 +2 @@\n-removed\n+added\n",
@@ -292,11 +304,11 @@ func TestWrite(t *testing.T) {
 				"  + │ added↵\n",
 		},
 		"DelInsMiddleContext1": {
-			edits: []diff.Edit{
-				{Op: diff.Eq, OldLine: "keep1\n", NewLine: "keep1\n"},
-				{Op: diff.Del, OldLine: "removed\n"},
-				{Op: diff.Ins, NewLine: "added\n"},
-				{Op: diff.Eq, OldLine: "keep2\n", NewLine: "keep2\n"},
+			edits: []Edit{
+				{Op: Eq, OldLine: "keep1\n", NewLine: "keep1\n"},
+				{Op: Del, OldLine: "removed\n"},
+				{Op: Ins, NewLine: "added\n"},
+				{Op: Eq, OldLine: "keep2\n", NewLine: "keep2\n"},
 			},
 			context:     1,
 			wantUnified: "@@ -1,3 +1,3 @@\n keep1\n-removed\n+added\n keep2\n",
@@ -306,10 +318,10 @@ func TestWrite(t *testing.T) {
 				"3   │ keep2\n",
 		},
 		"DelInsEndContext0": {
-			edits: []diff.Edit{
-				{Op: diff.Eq, OldLine: "keep\n", NewLine: "keep\n"},
-				{Op: diff.Del, OldLine: "old\n"},
-				{Op: diff.Ins, NewLine: "new\n"},
+			edits: []Edit{
+				{Op: Eq, OldLine: "keep\n", NewLine: "keep\n"},
+				{Op: Del, OldLine: "old\n"},
+				{Op: Ins, NewLine: "new\n"},
 			},
 			context:     0,
 			wantUnified: "@@ -2 +2 @@\n-old\n+new\n",
@@ -317,10 +329,10 @@ func TestWrite(t *testing.T) {
 				"  + │ new↵\n",
 		},
 		"DelInsEndContext1": {
-			edits: []diff.Edit{
-				{Op: diff.Eq, OldLine: "keep\n", NewLine: "keep\n"},
-				{Op: diff.Del, OldLine: "old\n"},
-				{Op: diff.Ins, NewLine: "new\n"},
+			edits: []Edit{
+				{Op: Eq, OldLine: "keep\n", NewLine: "keep\n"},
+				{Op: Del, OldLine: "old\n"},
+				{Op: Ins, NewLine: "new\n"},
 			},
 			context:     1,
 			wantUnified: "@@ -1,2 +1,2 @@\n keep\n-old\n+new\n",
@@ -329,12 +341,12 @@ func TestWrite(t *testing.T) {
 				"  + │ new↵\n",
 		},
 		"ConsecDelMiddleContext1": {
-			edits: []diff.Edit{
-				{Op: diff.Eq, OldLine: "keep\n", NewLine: "keep\n"},
-				{Op: diff.Del, OldLine: "del1\n"},
-				{Op: diff.Del, OldLine: "del2\n"},
-				{Op: diff.Del, OldLine: "del3\n"},
-				{Op: diff.Eq, OldLine: "end\n", NewLine: "end\n"},
+			edits: []Edit{
+				{Op: Eq, OldLine: "keep\n", NewLine: "keep\n"},
+				{Op: Del, OldLine: "del1\n"},
+				{Op: Del, OldLine: "del2\n"},
+				{Op: Del, OldLine: "del3\n"},
+				{Op: Eq, OldLine: "end\n", NewLine: "end\n"},
 			},
 			context:     1,
 			wantUnified: "@@ -1,5 +1,2 @@\n keep\n-del1\n-del2\n-del3\n end\n",
@@ -345,12 +357,12 @@ func TestWrite(t *testing.T) {
 				"5   │ end\n",
 		},
 		"ConsecInsMiddleContext1": {
-			edits: []diff.Edit{
-				{Op: diff.Eq, OldLine: "keep\n", NewLine: "keep\n"},
-				{Op: diff.Ins, NewLine: "ins1\n"},
-				{Op: diff.Ins, NewLine: "ins2\n"},
-				{Op: diff.Ins, NewLine: "ins3\n"},
-				{Op: diff.Eq, OldLine: "end\n", NewLine: "end\n"},
+			edits: []Edit{
+				{Op: Eq, OldLine: "keep\n", NewLine: "keep\n"},
+				{Op: Ins, NewLine: "ins1\n"},
+				{Op: Ins, NewLine: "ins2\n"},
+				{Op: Ins, NewLine: "ins3\n"},
+				{Op: Eq, OldLine: "end\n", NewLine: "end\n"},
 			},
 			context:     1,
 			wantUnified: "@@ -1,2 +1,5 @@\n keep\n+ins1\n+ins2\n+ins3\n end\n",
@@ -361,13 +373,13 @@ func TestWrite(t *testing.T) {
 				"2   │ end\n",
 		},
 		"ConsecDelInsMiddleContext1": {
-			edits: []diff.Edit{
-				{Op: diff.Eq, OldLine: "keep\n", NewLine: "keep\n"},
-				{Op: diff.Del, OldLine: "del1\n"},
-				{Op: diff.Del, OldLine: "del2\n"},
-				{Op: diff.Ins, NewLine: "ins1\n"},
-				{Op: diff.Ins, NewLine: "ins2\n"},
-				{Op: diff.Eq, OldLine: "end\n", NewLine: "end\n"},
+			edits: []Edit{
+				{Op: Eq, OldLine: "keep\n", NewLine: "keep\n"},
+				{Op: Del, OldLine: "del1\n"},
+				{Op: Del, OldLine: "del2\n"},
+				{Op: Ins, NewLine: "ins1\n"},
+				{Op: Ins, NewLine: "ins2\n"},
+				{Op: Eq, OldLine: "end\n", NewLine: "end\n"},
 			},
 			context:     1,
 			wantUnified: "@@ -1,4 +1,4 @@\n keep\n-del1\n-del2\n+ins1\n+ins2\n end\n",
@@ -379,10 +391,10 @@ func TestWrite(t *testing.T) {
 				"4   │ end\n",
 		},
 		"ConsecDelStartContext1": {
-			edits: []diff.Edit{
-				{Op: diff.Del, OldLine: "a\n"},
-				{Op: diff.Del, OldLine: "b\n"},
-				{Op: diff.Del, OldLine: "c\n"},
+			edits: []Edit{
+				{Op: Del, OldLine: "a\n"},
+				{Op: Del, OldLine: "b\n"},
+				{Op: Del, OldLine: "c\n"},
 			},
 			context:     1,
 			wantUnified: "@@ -1,3 +0,0 @@\n-a\n-b\n-c\n",
@@ -391,10 +403,10 @@ func TestWrite(t *testing.T) {
 				"3 - │ c↵\n",
 		},
 		"ConsecInsStartContext1": {
-			edits: []diff.Edit{
-				{Op: diff.Ins, NewLine: "a\n"},
-				{Op: diff.Ins, NewLine: "b\n"},
-				{Op: diff.Ins, NewLine: "c\n"},
+			edits: []Edit{
+				{Op: Ins, NewLine: "a\n"},
+				{Op: Ins, NewLine: "b\n"},
+				{Op: Ins, NewLine: "c\n"},
 			},
 			context:     1,
 			wantUnified: "@@ -0,0 +1,3 @@\n+a\n+b\n+c\n",
@@ -403,15 +415,15 @@ func TestWrite(t *testing.T) {
 				"  + │ c↵\n",
 		},
 		"TwoHunksSeparateContext1": {
-			edits: []diff.Edit{
-				{Op: diff.Eq, OldLine: "line1\n", NewLine: "line1\n"},
-				{Op: diff.Del, OldLine: "del1\n"},
-				{Op: diff.Eq, OldLine: "line2\n", NewLine: "line2\n"},
-				{Op: diff.Eq, OldLine: "line3\n", NewLine: "line3\n"},
-				{Op: diff.Eq, OldLine: "line4\n", NewLine: "line4\n"},
-				{Op: diff.Eq, OldLine: "line5\n", NewLine: "line5\n"},
-				{Op: diff.Ins, NewLine: "ins1\n"},
-				{Op: diff.Eq, OldLine: "line6\n", NewLine: "line6\n"},
+			edits: []Edit{
+				{Op: Eq, OldLine: "line1\n", NewLine: "line1\n"},
+				{Op: Del, OldLine: "del1\n"},
+				{Op: Eq, OldLine: "line2\n", NewLine: "line2\n"},
+				{Op: Eq, OldLine: "line3\n", NewLine: "line3\n"},
+				{Op: Eq, OldLine: "line4\n", NewLine: "line4\n"},
+				{Op: Eq, OldLine: "line5\n", NewLine: "line5\n"},
+				{Op: Ins, NewLine: "ins1\n"},
+				{Op: Eq, OldLine: "line6\n", NewLine: "line6\n"},
 			},
 			context:     1,
 			wantUnified: "@@ -1,3 +1,2 @@\n line1\n-del1\n line2\n@@ -6,2 +5,3 @@\n line5\n+ins1\n line6\n",
@@ -425,15 +437,15 @@ func TestWrite(t *testing.T) {
 				"7   │ line6\n",
 		},
 		"TwoHunksMergedContext2": {
-			edits: []diff.Edit{
-				{Op: diff.Eq, OldLine: "line1\n", NewLine: "line1\n"},
-				{Op: diff.Del, OldLine: "del1\n"},
-				{Op: diff.Eq, OldLine: "line2\n", NewLine: "line2\n"},
-				{Op: diff.Eq, OldLine: "line3\n", NewLine: "line3\n"},
-				{Op: diff.Eq, OldLine: "line4\n", NewLine: "line4\n"},
-				{Op: diff.Eq, OldLine: "line5\n", NewLine: "line5\n"},
-				{Op: diff.Ins, NewLine: "ins1\n"},
-				{Op: diff.Eq, OldLine: "line6\n", NewLine: "line6\n"},
+			edits: []Edit{
+				{Op: Eq, OldLine: "line1\n", NewLine: "line1\n"},
+				{Op: Del, OldLine: "del1\n"},
+				{Op: Eq, OldLine: "line2\n", NewLine: "line2\n"},
+				{Op: Eq, OldLine: "line3\n", NewLine: "line3\n"},
+				{Op: Eq, OldLine: "line4\n", NewLine: "line4\n"},
+				{Op: Eq, OldLine: "line5\n", NewLine: "line5\n"},
+				{Op: Ins, NewLine: "ins1\n"},
+				{Op: Eq, OldLine: "line6\n", NewLine: "line6\n"},
 			},
 			context:     2,
 			wantUnified: "@@ -1,7 +1,7 @@\n line1\n-del1\n line2\n line3\n line4\n line5\n+ins1\n line6\n",
@@ -448,10 +460,10 @@ func TestWrite(t *testing.T) {
 				"7   │ line6\n",
 		},
 		"TwoHunksSeparateContext0": {
-			edits: []diff.Edit{
-				{Op: diff.Del, OldLine: "first\n"},
-				{Op: diff.Eq, OldLine: "middle\n", NewLine: "middle\n"},
-				{Op: diff.Ins, NewLine: "last\n"},
+			edits: []Edit{
+				{Op: Del, OldLine: "first\n"},
+				{Op: Eq, OldLine: "middle\n", NewLine: "middle\n"},
+				{Op: Ins, NewLine: "last\n"},
 			},
 			context:     0,
 			wantUnified: "@@ -1 +0,0 @@\n-first\n@@ -2,0 +2 @@\n+last\n",
@@ -461,10 +473,10 @@ func TestWrite(t *testing.T) {
 				"  + │ last↵\n",
 		},
 		"TwoHunksMergedContext1": {
-			edits: []diff.Edit{
-				{Op: diff.Del, OldLine: "first\n"},
-				{Op: diff.Eq, OldLine: "middle\n", NewLine: "middle\n"},
-				{Op: diff.Ins, NewLine: "last\n"},
+			edits: []Edit{
+				{Op: Del, OldLine: "first\n"},
+				{Op: Eq, OldLine: "middle\n", NewLine: "middle\n"},
+				{Op: Ins, NewLine: "last\n"},
 			},
 			context:     1,
 			wantUnified: "@@ -1,2 +1,2 @@\n-first\n middle\n+last\n",
@@ -474,18 +486,18 @@ func TestWrite(t *testing.T) {
 				"  + │ last↵\n",
 		},
 		"ThreeHunksSeparateContext1": {
-			edits: []diff.Edit{
-				{Op: diff.Del, OldLine: "del1\n"},
-				{Op: diff.Eq, OldLine: "a\n", NewLine: "a\n"},
-				{Op: diff.Eq, OldLine: "b\n", NewLine: "b\n"},
-				{Op: diff.Eq, OldLine: "c\n", NewLine: "c\n"},
-				{Op: diff.Eq, OldLine: "d\n", NewLine: "d\n"},
-				{Op: diff.Del, OldLine: "del2\n"},
-				{Op: diff.Eq, OldLine: "e\n", NewLine: "e\n"},
-				{Op: diff.Eq, OldLine: "f\n", NewLine: "f\n"},
-				{Op: diff.Eq, OldLine: "g\n", NewLine: "g\n"},
-				{Op: diff.Eq, OldLine: "h\n", NewLine: "h\n"},
-				{Op: diff.Ins, NewLine: "ins1\n"},
+			edits: []Edit{
+				{Op: Del, OldLine: "del1\n"},
+				{Op: Eq, OldLine: "a\n", NewLine: "a\n"},
+				{Op: Eq, OldLine: "b\n", NewLine: "b\n"},
+				{Op: Eq, OldLine: "c\n", NewLine: "c\n"},
+				{Op: Eq, OldLine: "d\n", NewLine: "d\n"},
+				{Op: Del, OldLine: "del2\n"},
+				{Op: Eq, OldLine: "e\n", NewLine: "e\n"},
+				{Op: Eq, OldLine: "f\n", NewLine: "f\n"},
+				{Op: Eq, OldLine: "g\n", NewLine: "g\n"},
+				{Op: Eq, OldLine: "h\n", NewLine: "h\n"},
+				{Op: Ins, NewLine: "ins1\n"},
 			},
 			context:     1,
 			wantUnified: "@@ -1,2 +1 @@\n-del1\n a\n@@ -5,3 +4,2 @@\n d\n-del2\n e\n@@ -10 +8,2 @@\n h\n+ins1\n",
@@ -501,11 +513,11 @@ func TestWrite(t *testing.T) {
 				"   + │ ins1↵\n",
 		},
 		"GutterExtraSpaces": {
-			edits: []diff.Edit{
-				{Op: diff.Eq, OldLine: "func foo(a int) {\n", NewLine: "func foo(a int) {\n"},
-				{Op: diff.Del, OldLine: "    fmt.Println(item)\n"},
-				{Op: diff.Ins, NewLine: "    fmt.Println( item )\n"},
-				{Op: diff.Eq, OldLine: "}\n", NewLine: "}\n"},
+			edits: []Edit{
+				{Op: Eq, OldLine: "func foo(a int) {\n", NewLine: "func foo(a int) {\n"},
+				{Op: Del, OldLine: "    fmt.Println(item)\n"},
+				{Op: Ins, NewLine: "    fmt.Println( item )\n"},
+				{Op: Eq, OldLine: "}\n", NewLine: "}\n"},
 			},
 			context:     1,
 			wantUnified: "@@ -1,3 +1,3 @@\n func foo(a int) {\n-    fmt.Println(item)\n+    fmt.Println( item )\n }\n",
@@ -515,11 +527,11 @@ func TestWrite(t *testing.T) {
 				"3   │ }\n",
 		},
 		"GutterTabsToSpaces": {
-			edits: []diff.Edit{
-				{Op: diff.Eq, OldLine: "func main() {\n", NewLine: "func main() {\n"},
-				{Op: diff.Del, OldLine: "\tfmt.Println(\"hello\")\n"},
-				{Op: diff.Ins, NewLine: "    fmt.Println(\"hello\")\n"},
-				{Op: diff.Eq, OldLine: "}\n", NewLine: "}\n"},
+			edits: []Edit{
+				{Op: Eq, OldLine: "func main() {\n", NewLine: "func main() {\n"},
+				{Op: Del, OldLine: "\tfmt.Println(\"hello\")\n"},
+				{Op: Ins, NewLine: "    fmt.Println(\"hello\")\n"},
+				{Op: Eq, OldLine: "}\n", NewLine: "}\n"},
 			},
 			context:     1,
 			wantUnified: "@@ -1,3 +1,3 @@\n func main() {\n-\tfmt.Println(\"hello\")\n+    fmt.Println(\"hello\")\n }\n",
@@ -529,11 +541,11 @@ func TestWrite(t *testing.T) {
 				"3   │ }\n",
 		},
 		"GutterTrailingWhitespace": {
-			edits: []diff.Edit{
-				{Op: diff.Eq, OldLine: "func main() {\n", NewLine: "func main() {\n"},
-				{Op: diff.Del, OldLine: "\tfmt.Println(\"hello\")   \n"},
-				{Op: diff.Ins, NewLine: "\tfmt.Println(\"hello\")\n"},
-				{Op: diff.Eq, OldLine: "}\n", NewLine: "}\n"},
+			edits: []Edit{
+				{Op: Eq, OldLine: "func main() {\n", NewLine: "func main() {\n"},
+				{Op: Del, OldLine: "\tfmt.Println(\"hello\")   \n"},
+				{Op: Ins, NewLine: "\tfmt.Println(\"hello\")\n"},
+				{Op: Eq, OldLine: "}\n", NewLine: "}\n"},
 			},
 			context:     1,
 			wantUnified: "@@ -1,3 +1,3 @@\n func main() {\n-\tfmt.Println(\"hello\")   \n+\tfmt.Println(\"hello\")\n }\n",
@@ -544,11 +556,11 @@ func TestWrite(t *testing.T) {
 		},
 		"GutterMissingFinalNewline": {
 			// want side has no trailing newline, got side has one
-			edits: []diff.Edit{
-				{Op: diff.Eq, OldLine: "func main() {\n", NewLine: "func main() {\n"},
-				{Op: diff.Eq, OldLine: "\tfmt.Println(\"hello\")\n", NewLine: "\tfmt.Println(\"hello\")\n"},
-				{Op: diff.Del, OldLine: "}"},
-				{Op: diff.Ins, NewLine: "}\n"},
+			edits: []Edit{
+				{Op: Eq, OldLine: "func main() {\n", NewLine: "func main() {\n"},
+				{Op: Eq, OldLine: "\tfmt.Println(\"hello\")\n", NewLine: "\tfmt.Println(\"hello\")\n"},
+				{Op: Del, OldLine: "}"},
+				{Op: Ins, NewLine: "}\n"},
 			},
 			context:     1,
 			wantUnified: "@@ -2,2 +2,2 @@\n \tfmt.Println(\"hello\")\n-}\n\\ No newline at end of file\n+}\n",
@@ -557,10 +569,10 @@ func TestWrite(t *testing.T) {
 				"  + │ }↵\n",
 		},
 		"GutterExtraBlankLines": {
-			edits: []diff.Edit{
-				{Op: diff.Eq, OldLine: "foo()\n", NewLine: "foo()\n"},
-				{Op: diff.Ins, NewLine: "\n"},
-				{Op: diff.Ins, NewLine: "\n"},
+			edits: []Edit{
+				{Op: Eq, OldLine: "foo()\n", NewLine: "foo()\n"},
+				{Op: Ins, NewLine: "\n"},
+				{Op: Ins, NewLine: "\n"},
 			},
 			context:     1,
 			wantUnified: "@@ -1 +1,3 @@\n foo()\n+\n+\n",
@@ -569,10 +581,10 @@ func TestWrite(t *testing.T) {
 				"  + │ ↵\n",
 		},
 		"GutterBlankLineRemoved": {
-			edits: []diff.Edit{
-				{Op: diff.Eq, OldLine: "a\n", NewLine: "a\n"},
-				{Op: diff.Del, OldLine: "\n"},
-				{Op: diff.Eq, OldLine: "b\n", NewLine: "b\n"},
+			edits: []Edit{
+				{Op: Eq, OldLine: "a\n", NewLine: "a\n"},
+				{Op: Del, OldLine: "\n"},
+				{Op: Eq, OldLine: "b\n", NewLine: "b\n"},
 			},
 			context:     1,
 			wantUnified: "@@ -1,3 +1,2 @@\n a\n-\n b\n",
@@ -582,12 +594,12 @@ func TestWrite(t *testing.T) {
 		},
 		"GutterContextLinesNoMarkers": {
 			// Context lines with tabs should NOT have whitespace markers
-			edits: []diff.Edit{
-				{Op: diff.Eq, OldLine: "prefix\n", NewLine: "prefix\n"},
-				{Op: diff.Eq, OldLine: "\tindented\n", NewLine: "\tindented\n"},
-				{Op: diff.Del, OldLine: "old\n"},
-				{Op: diff.Ins, NewLine: "new\n"},
-				{Op: diff.Eq, OldLine: "suffix\n", NewLine: "suffix\n"},
+			edits: []Edit{
+				{Op: Eq, OldLine: "prefix\n", NewLine: "prefix\n"},
+				{Op: Eq, OldLine: "\tindented\n", NewLine: "\tindented\n"},
+				{Op: Del, OldLine: "old\n"},
+				{Op: Ins, NewLine: "new\n"},
+				{Op: Eq, OldLine: "suffix\n", NewLine: "suffix\n"},
 			},
 			context:     3,
 			wantUnified: "@@ -1,4 +1,4 @@\n prefix\n \tindented\n-old\n+new\n suffix\n",
@@ -598,11 +610,11 @@ func TestWrite(t *testing.T) {
 				"4   │ suffix\n",
 		},
 		"InsMiddleContext3": {
-			edits: []diff.Edit{
-				{Op: diff.Eq, OldLine: "a\n", NewLine: "a\n"},
-				{Op: diff.Eq, OldLine: "b\n", NewLine: "b\n"},
-				{Op: diff.Ins, NewLine: "new\n"},
-				{Op: diff.Eq, OldLine: "c\n", NewLine: "c\n"},
+			edits: []Edit{
+				{Op: Eq, OldLine: "a\n", NewLine: "a\n"},
+				{Op: Eq, OldLine: "b\n", NewLine: "b\n"},
+				{Op: Ins, NewLine: "new\n"},
+				{Op: Eq, OldLine: "c\n", NewLine: "c\n"},
 			},
 			context:     3,
 			wantUnified: "@@ -1,3 +1,4 @@\n a\n b\n+new\n c\n",
@@ -612,21 +624,21 @@ func TestWrite(t *testing.T) {
 				"3   │ c\n",
 		},
 		"GutterCollapsedContext": {
-			edits: []diff.Edit{
-				{Op: diff.Del, OldLine: "func foo() {\n"},
-				{Op: diff.Ins, NewLine: "func foo()  {\n"},
-				{Op: diff.Eq, OldLine: "    a\n", NewLine: "    a\n"},
-				{Op: diff.Eq, OldLine: "    b\n", NewLine: "    b\n"},
-				{Op: diff.Eq, OldLine: "    c\n", NewLine: "    c\n"},
-				{Op: diff.Eq, OldLine: "    d\n", NewLine: "    d\n"},
-				{Op: diff.Eq, OldLine: "    e\n", NewLine: "    e\n"},
-				{Op: diff.Eq, OldLine: "    f\n", NewLine: "    f\n"},
-				{Op: diff.Eq, OldLine: "    g\n", NewLine: "    g\n"},
-				{Op: diff.Eq, OldLine: "    h\n", NewLine: "    h\n"},
-				{Op: diff.Eq, OldLine: "    i\n", NewLine: "    i\n"},
-				{Op: diff.Eq, OldLine: "    j\n", NewLine: "    j\n"},
-				{Op: diff.Del, OldLine: "}  \n"},
-				{Op: diff.Ins, NewLine: "}\n"},
+			edits: []Edit{
+				{Op: Del, OldLine: "func foo() {\n"},
+				{Op: Ins, NewLine: "func foo()  {\n"},
+				{Op: Eq, OldLine: "    a\n", NewLine: "    a\n"},
+				{Op: Eq, OldLine: "    b\n", NewLine: "    b\n"},
+				{Op: Eq, OldLine: "    c\n", NewLine: "    c\n"},
+				{Op: Eq, OldLine: "    d\n", NewLine: "    d\n"},
+				{Op: Eq, OldLine: "    e\n", NewLine: "    e\n"},
+				{Op: Eq, OldLine: "    f\n", NewLine: "    f\n"},
+				{Op: Eq, OldLine: "    g\n", NewLine: "    g\n"},
+				{Op: Eq, OldLine: "    h\n", NewLine: "    h\n"},
+				{Op: Eq, OldLine: "    i\n", NewLine: "    i\n"},
+				{Op: Eq, OldLine: "    j\n", NewLine: "    j\n"},
+				{Op: Del, OldLine: "}  \n"},
+				{Op: Ins, NewLine: "}\n"},
 			},
 			context: 3,
 			// 10 equal lines between changes, context=3: show 3 after first, 3 before second, collapse 4
@@ -649,7 +661,7 @@ func TestWrite(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Run("Unified", func(t *testing.T) {
 				var buf bytes.Buffer
-				err := diff.Write(&buf, test.edits, diff.WithContext(test.context))
+				err := Write(&buf, test.edits, WithContext(test.context))
 				if err != nil {
 					t.Fatalf("Write() error: %v", err)
 				}
@@ -660,7 +672,7 @@ func TestWrite(t *testing.T) {
 			})
 			t.Run("Gutter", func(t *testing.T) {
 				var buf bytes.Buffer
-				err := diff.Write(&buf, test.edits, diff.WithContext(test.context), diff.WithGutter())
+				err := Write(&buf, test.edits, WithContext(test.context), WithGutter())
 				if err != nil {
 					t.Fatalf("Write() error: %v", err)
 				}
@@ -680,11 +692,11 @@ func TestWriteGutterColor(t *testing.T) {
 		reset = "\033[0m"
 	)
 
-	edits := []diff.Edit{
-		{Op: diff.Eq, OldLine: "keep1\n", NewLine: "keep1\n"},
-		{Op: diff.Del, OldLine: "removed\n"},
-		{Op: diff.Ins, NewLine: "added\n"},
-		{Op: diff.Eq, OldLine: "keep2\n", NewLine: "keep2\n"},
+	edits := []Edit{
+		{Op: Eq, OldLine: "keep1\n", NewLine: "keep1\n"},
+		{Op: Del, OldLine: "removed\n"},
+		{Op: Ins, NewLine: "added\n"},
+		{Op: Eq, OldLine: "keep2\n", NewLine: "keep2\n"},
 	}
 
 	want := "1   │ keep1\n" +
@@ -693,12 +705,127 @@ func TestWriteGutterColor(t *testing.T) {
 		"3   │ keep2\n"
 
 	var buf bytes.Buffer
-	err := diff.Write(&buf, edits, diff.WithContext(1), diff.WithGutter(), diff.WithColor())
+	err := Write(&buf, edits, WithContext(1), WithGutter(), WithColor())
 	if err != nil {
 		t.Fatalf("Write() error: %v", err)
 	}
 	got := buf.String()
 	if got != want {
 		t.Errorf("Write() =\n%q\nwant:\n%q", got, want)
+	}
+}
+
+func FuzzLines(f *testing.F) {
+	f.Add("ABCABBA", "CBABAC")
+	f.Add("ABC", "ABC")
+	f.Add("", "ABC")
+	f.Add("ABC", "")
+	f.Add("", "")
+	f.Add("A", "B")
+	f.Add("AB", "CD")
+
+	f.Fuzz(func(t *testing.T, a, b string) {
+		oldLines := strings.Split(a, "\n")
+		newLines := strings.Split(b, "\n")
+		linear := shortestEditLinear(oldLines, newLines)
+		quadratic := shortestEditQuadratic(oldLines, newLines)
+
+		linearD := sesLen(linear)
+		quadraticD := sesLen(quadratic)
+		if linearD != quadraticD {
+			t.Errorf("SES length mismatch for (%q, %q): linear=%d, quadratic=%d\nlinear:    %v\nquadratic: %v",
+				a, b, linearD, quadraticD, linear, quadratic)
+		}
+		if err := validEdits(linear, oldLines, newLines); err != nil {
+			t.Errorf("linear edits invalid for (%q, %q): %v\nedits: %v", a, b, err, linear)
+		}
+		if err := validEdits(quadratic, oldLines, newLines); err != nil {
+			t.Errorf("quadratic edits invalid for (%q, %q): %v\nedits: %v", a, b, err, quadratic)
+		}
+	})
+}
+
+// sesLen returns the number of non-equal edits (the edit script length D).
+func sesLen(edits []Edit) int {
+	n := 0
+	for _, e := range edits {
+		if e.Op != Eq {
+			n++
+		}
+	}
+	return n
+}
+
+// validEdits checks that applying edits to oldLines produces newLines.
+func validEdits(edits []Edit, oldLines, newLines []string) error {
+	var oldIdx, newIdx int
+	for i, e := range edits {
+		switch e.Op {
+		case Eq:
+			if oldIdx >= len(oldLines) {
+				return fmt.Errorf("edit %d: Eq at old index %d, but old has %d lines", i, oldIdx, len(oldLines))
+			}
+			if newIdx >= len(newLines) {
+				return fmt.Errorf("edit %d: Eq at new index %d, but new has %d lines", i, newIdx, len(newLines))
+			}
+			if oldLines[oldIdx] != newLines[newIdx] {
+				return fmt.Errorf("edit %d: Eq but old[%d]=%q != new[%d]=%q", i, oldIdx, oldLines[oldIdx], newIdx, newLines[newIdx])
+			}
+			oldIdx++
+			newIdx++
+		case Del:
+			if oldIdx >= len(oldLines) {
+				return fmt.Errorf("edit %d: Del at old index %d, but old has %d lines", i, oldIdx, len(oldLines))
+			}
+			oldIdx++
+		case Ins:
+			if newIdx >= len(newLines) {
+				return fmt.Errorf("edit %d: Ins at new index %d, but new has %d lines", i, newIdx, len(newLines))
+			}
+			newIdx++
+		}
+	}
+	if oldIdx != len(oldLines) {
+		return fmt.Errorf("old not fully consumed: processed %d of %d", oldIdx, len(oldLines))
+	}
+	if newIdx != len(newLines) {
+		return fmt.Errorf("new not fully consumed: processed %d of %d", newIdx, len(newLines))
+	}
+	return nil
+}
+
+func BenchmarkLines(b *testing.B) {
+	for _, n := range []int{100, 1000, 10000} {
+		oldLines := make([]string, n)
+		for i := range oldLines {
+			oldLines[i] = fmt.Sprintf("line %d\n", i)
+		}
+		b.Run(fmt.Sprintf("N=%d", n), func(b *testing.B) {
+			for _, d := range []int{10, n} {
+				b.Run(fmt.Sprintf("D=%d", d), func(b *testing.B) {
+					newLines := slices.Clone(oldLines)
+					step := n / d // changes spread evenly
+					for i := range d {
+						idx := i * step
+						newLines[idx] = fmt.Sprintf("changed %d\n", idx)
+					}
+
+					b.Run("Linear", func(b *testing.B) {
+						b.ReportAllocs()
+						for b.Loop() {
+							edits := shortestEditLinear(oldLines, newLines)
+							_ = edits
+						}
+					})
+					b.Run("Quadratic", func(b *testing.B) {
+						b.ReportAllocs()
+						for b.Loop() {
+							edits := shortestEditQuadratic(oldLines, newLines)
+							_ = edits
+						}
+					})
+				})
+			}
+		})
 	}
 }

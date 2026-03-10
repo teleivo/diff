@@ -69,6 +69,36 @@ gdiff --gutter file1.txt file2.txt
 
 Exit codes: 0 (identical), 1 (differences found), 2 (error)
 
+## Development
+
+### Benchmarks
+
+```sh
+go test -bench=. | tee results.bench
+./plot.sh results.bench
+```
+
+The plots show how time and space scale with sequence length N across two D (edit distance) values,
+and confirm both implementations match their theoretical complexity.
+
+![Time complexity](bench_time.svg)
+![Space complexity](bench_space.svg)
+
+### Profiling
+
+Generate test files and run profiling:
+
+```sh
+seq 1 100000 > a.txt
+seq 1 100000 | awk 'NR%2==0{print $0"x"} NR%2!=0{print}' > b.txt
+
+go build -o gdiff ./cmd/gdiff
+./gdiff --cpuprofile cpu.prof --memprofile mem.prof a.txt b.txt > /dev/null
+
+go tool pprof -top cpu.prof
+go tool pprof -alloc_space -top mem.prof
+```
+
 ## Acknowledgments
 
 This implementation is based on James Coglan's great blog series ["The Myers Diff Algorithm"](https://blog.jcoglan.com/2017/02/12/the-myers-diff-algorithm-part-1/)

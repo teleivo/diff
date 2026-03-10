@@ -1,10 +1,10 @@
 # TODO
 
-* refactor: to linear space version (Section 4b of Myers paper) - current implementation uses O(D²)
-  space for the trace; the linear space version uses divide-and-conquer to find the "middle snake"
-  and only requires O(N) space. Also consider only cloning the active diagonal range [-d, d] per
-  iteration instead of the full v slice to reduce per-clone cost from O(N+M) to O(d)
-  * write benchmark and/or add cpu/memprofile flags
-
 * use dot/kitty image protocol to show an animation of it that works in ghostty
+  see ../algo-animate/ as inspiration
+
+* idea: reduce allocations by working with `[][]byte` instead of `[]string` and `mmap` files instead
+of `os.ReadFile`. caveat: complicates API design since callers like assertive and tests want to pass
+strings; would need two public entry points (`Lines`/`LinesBytes`) sharing one internal
+implementation parameterized on the equality check
 
