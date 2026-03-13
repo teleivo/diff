@@ -10,11 +10,11 @@ import (
 func TestMyersFramesDOTValid(t *testing.T) {
 	old := []string{"A", "B", "C", "A", "B", "B", "A"}
 	new_ := []string{"C", "B", "A", "B", "A", "C"}
-	my := NewMyers(old, new_)
+	my := newAnimation(old, new_)
 
 	frameNum := 0
 	for {
-		dot := my.Next()
+		dot := my.next()
 		if dot == "" {
 			break
 		}
@@ -28,17 +28,17 @@ func TestMyersFramesDOTValid(t *testing.T) {
 	}
 	t.Logf("Generated %d frames", frameNum)
 
-	summary := my.Summary()
+	summary := my.summary()
 	if summary == "" {
 		t.Error("expected non-empty summary")
 	}
-	t.Logf("Summary: %s", summary)
+	t.Logf("summary: %s", summary)
 }
 
 func TestMyersBacktrack(t *testing.T) {
 	old := []string{"A", "B", "C", "A", "B", "B", "A"}
 	new_ := []string{"C", "B", "A", "B", "A", "C"}
-	my := NewMyers(old, new_)
+	my := newAnimation(old, new_)
 
 	// Path should start at (0,0) and end at (n,m)
 	if len(my.path) == 0 {

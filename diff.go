@@ -218,9 +218,6 @@ func (df *differ) backward(d, maxD int, from, to point, vf, vb []int) (point, po
 // the full V array of length 2*(M+N)+1 for each of the D iterations. This could be reduced
 // to O(D²) by only cloning the active diagonals [-d, d].
 func shortestEditQuadratic(oldLines, newLines []string) []Edit {
-	if len(oldLines)+len(newLines) == 0 {
-		return nil
-	}
 	trace, maxD := myers.Trace(oldLines, newLines)
 	return backtrack(trace, oldLines, newLines, maxD)
 }

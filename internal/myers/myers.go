@@ -7,15 +7,16 @@ import "slices"
 // Trace runs the quadratic Myers algorithm and returns the V-array snapshots,
 // one per edit distance d (starting from d=0). The returned maxD is n+m.
 // old and new are the sequences being compared.
-func Trace(old, new []string) (trace [][]int, maxD int) {
+func Trace(old, new []string) ([][]int, int) {
 	n := len(old)
 	m := len(new)
-	maxD = n + m
+	maxD := n + m
 	if maxD == 0 {
 		return nil, 0
 	}
 
 	v := make([]int, 2*maxD+1)
+	var trace [][]int
 
 	for d := range maxD + 1 {
 		trace = append(trace, slices.Clone(v))

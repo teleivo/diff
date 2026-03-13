@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 	"strings"
@@ -8,55 +9,47 @@ import (
 	"github.com/teleivo/diff/internal/myers"
 )
 
-// Myers animates the quadratic Myers diff algorithm on an edit graph.
-type Myers struct {
-	old   []string
-	new   []string
-	n     int // len(old)
-	m     int // len(new)
-	maxD  int
-	trace [][]int // trace[d] = V snapshot before processing edit distance d
-	path  []pathStep
+// animation animates the quadratic Myers diff algorithm on an edit graph.
+type animation struct {
+	oldLines []string
+	newLines []string
+	n        int // len(oldLines)
+	m        int // len(newLines)
+	maxD     int
+	edits    int     // shortest edit distance
+	trace    [][]int // trace[d] = V snapshot before processing edit distance d
+	path     []point
 
 	frameIdx int // current animation frame index
 	// frames: 0 = initial grid, 1..len(trace) = d-passes, last = optimal path
 }
 
-type pathStep struct {
+type point struct {
 	x, y int
 }
 
-func NewMyers(old, new []string) *Myers {
-	my := &Myers{
-		old:  old,
-		new:  new,
-		n:    len(old),
-		m:    len(new),
-		maxD: len(old) + len(new),
+func newAnimation(oldLines, newLines []string) *animation {
+	a := &animation{
+		oldLines: oldLines,
+		newLines: newLines,
+		n:        len(oldLines),
+		m:        len(newLines),
+		maxD:     len(oldLines) + len(newLines),
 	}
-	my.trace, my.path = my.compute()
-	return my
-}
-
-// compute runs the quadratic Myers algorithm and returns the trace and optimal path.
-func (my *Myers) compute() ([][]int, []pathStep) {
-	if my.maxD == 0 {
-		return nil, nil
-	}
-	trace, maxD := myers.Trace(my.old, my.new)
-	my.maxD = maxD
-	path := my.buildPath(trace)
-	return trace, path
+	a.trace, _ = myers.Trace(a.oldLines, a.newLines)
+	a.edits = max(len(a.trace)-1, 0)
+	a.path = a.buildPath(a.trace)
+	return a
 }
 
 // buildPath reconstructs the optimal path nodes by backtracking through the trace.
 // Returns grid positions (x,y) on the optimal path, in order from (0,0) to (n,m).
-func (my *Myers) buildPath(trace [][]int) []pathStep {
-	n, m, maxD := my.n, my.m, my.maxD
+func (a *animation) buildPath(trace [][]int) []point {
+	n, m, maxD := a.n, a.m, a.maxD
 	x, y := n, m
 
-	pathSet := make(map[pathStep]bool)
-	pathSet[pathStep{n, m}] = true
+	visited := make(map[point]struct{})
+	visited[point{n, m}] = struct{}{}
 
 	for d := len(trace) - 1; d >= 1; d-- {
 		v := trace[d]
@@ -83,13 +76,13 @@ func (my *Myers) buildPath(trace [][]int) []pathStep {
 			editEndX = prevX + 1
 			editEndY = prevY
 		}
-		pathSet[pathStep{prevX, prevY}] = true
-		pathSet[pathStep{editEndX, editEndY}] = true
+		visited[point{prevX, prevY}] = struct{}{}
+		visited[point{editEndX, editEndY}] = struct{}{}
 
 		// Mark all snake nodes from editEnd to (x, y)
 		sx, sy := editEndX, editEndY
 		for sx <= x && sy <= y {
-			pathSet[pathStep{sx, sy}] = true
+			visited[point{sx, sy}] = struct{}{}
 			sx++
 			sy++
 		}
@@ -97,79 +90,65 @@ func (my *Myers) buildPath(trace [][]int) []pathStep {
 		x, y = prevX, prevY
 	}
 
-	// Mark initial snake from (0,0)
-	pathSet[pathStep{0, 0}] = true
+	// Initial snake from (0,0)
+	visited[point{0, 0}] = struct{}{}
 	sx, sy := 0, 0
-	for sx < n && sy < m && my.old[sx] == my.new[sy] {
+	for sx < n && sy < m && a.oldLines[sx] == a.newLines[sy] {
 		sx++
 		sy++
-		pathSet[pathStep{sx, sy}] = true
+		visited[point{sx, sy}] = struct{}{}
 	}
 
-	// Collect and sort path nodes by (x+y, x)
-	steps := make([]pathStep, 0, len(pathSet))
-	for ps := range pathSet {
-		steps = append(steps, ps)
+	path := make([]point, 0, len(visited))
+	for p := range visited {
+		path = append(path, p)
 	}
-	slices.SortFunc(steps, func(a, b pathStep) int {
-		da, db := a.x+a.y, b.x+b.y
-		if da != db {
-			return da - db
-		}
-		return a.x - b.x
+	slices.SortFunc(path, func(a, b point) int {
+		return cmp.Or(cmp.Compare(a.x+a.y, b.x+b.y), cmp.Compare(a.x, b.x))
 	})
-	return steps
+	return path
 }
 
-// Next returns the next DOT frame, or "" when done.
-func (my *Myers) Next() string {
+// next returns the next DOT frame, or "" when done.
+func (a *animation) next() string {
 	// Frames: 0 = initial grid, 1..len(trace)-1 = d-passes, len(trace) = final path
-	total := len(my.trace) + 1 // +1 for the final path frame
-	if my.frameIdx >= total {
+	total := len(a.trace) + 1 // +1 for the final path frame
+	if a.frameIdx >= total {
 		return ""
 	}
-	frame := my.frameIdx
-	my.frameIdx++
+	frame := a.frameIdx
+	a.frameIdx++
 
 	if frame == 0 {
-		return my.toDOT(-1, false)
+		return a.toDOT(-1, false)
 	}
-	d := frame - 1
-	if d < len(my.trace)-1 {
-		return my.toDOT(d, false)
+	if d := frame - 1; d < len(a.trace)-1 {
+		return a.toDOT(d, false)
 	}
-	return my.toDOT(-1, true)
-}
-
-// Summary returns a summary string after animation.
-func (my *Myers) Summary() string {
-	d := len(my.trace) - 2 // number of edit passes (trace includes d=0)
-	if d < 0 {
-		d = 0
-	}
-	return fmt.Sprintf("Done: %d edits to transform %v → %v", d, my.old, my.new)
+	return a.toDOT(-1, true)
 }
 
 // toDOT generates a DOT string for the given state.
 // d: current edit distance being highlighted (-1 = none)
 // showPath: if true, draw the optimal path in green
-func (my *Myers) toDOT(d int, showPath bool) string {
-	n, m, maxD := my.n, my.m, my.maxD
+func (a *animation) toDOT(d int, showPath bool) string {
+	n, m, maxD := a.n, a.m, a.maxD
 	const scale = 72.0 // neato uses points (72pt = 1 inch); space nodes 1 inch apart
 
 	var sb strings.Builder
-	sb.WriteString("graph G {\n")
-	sb.WriteString("  graph [bgcolor=white, splines=false];\n")
-	sb.WriteString("  node [shape=circle, width=0.3, fixedsize=true, fontsize=10];\n")
-	sb.WriteString("  edge [color=\"#cccccc\"];\n")
+	sb.WriteString(`graph G {
+  graph [bgcolor=white, splines=false];
+  node [shape=circle, width=0.3, fixedsize=true, fontsize=10];
+  edge [color="#cccccc"];
+`)
 
 	// Determine which nodes are on the frontier up to current d,
 	// and which are on the optimal path.
 	type nodeKey struct{ x, y int }
 	frontierD := make(map[nodeKey]int) // node -> d value when first reached
 	if d >= 0 {
-		for di := 0; di <= d && di < len(my.trace); di++ {
-			v := my.trace[di]
+		for di := 0; di <= d && di < len(a.trace); di++ {
+			v := a.trace[di]
 			for k := -di; k <= di; k += 2 {
 				if k > n || k < -m {
 					continue
@@ -180,7 +159,7 @@ func (my *Myers) toDOT(d int, showPath bool) string {
 					// x from after snakes; compute snake endpoints
 					// find start of snake
 					var sx int
-					prevV := my.trace[di-1]
+					prevV := a.trace[di-1]
 					if k == -di || (k != di && prevV[i-1] < prevV[i+1]) {
 						sx = prevV[i+1]
 					} else {
@@ -214,8 +193,8 @@ func (my *Myers) toDOT(d int, showPath bool) string {
 
 	pathNodes := make(map[nodeKey]bool)
 	if showPath {
-		for _, s := range my.path {
-			pathNodes[nodeKey{s.x, s.y}] = true
+		for _, s := range a.path {
+			pathNodes[nodeKey(s)] = true
 		}
 	}
 
@@ -232,17 +211,17 @@ func (my *Myers) toDOT(d int, showPath bool) string {
 	}
 
 	// Emit axis labels: old sequence along the top (x-axis), new along the left (y-axis)
-	for x := 0; x < n; x++ {
+	for x := range n {
 		px := (float64(x) + 0.5) * scale
 		py := 0.6 * scale // above the top row
 		fmt.Fprintf(&sb, "  xlabel_old%d [label=%q, pos=\"%.2f,%.2f!\", shape=plaintext, fontsize=12, fontcolor=\"#333333\"];\n",
-			x, my.old[x], px, py)
+			x, a.oldLines[x], px, py)
 	}
-	for y := 0; y < m; y++ {
+	for y := range m {
 		px := -0.6 * scale // left of the leftmost column
 		py := float64(-y-1)*scale + scale*0.5
 		fmt.Fprintf(&sb, "  xlabel_new%d [label=%q, pos=\"%.2f,%.2f!\", shape=plaintext, fontsize=12, fontcolor=\"#333333\"];\n",
-			y, my.new[y], px, py)
+			y, a.newLines[y], px, py)
 	}
 
 	// Emit nodes
@@ -280,7 +259,7 @@ func (my *Myers) toDOT(d int, showPath bool) string {
 	// Emit grid edges (right = delete, down = insert, diagonal = equal)
 	// Right edges
 	for y := 0; y <= m; y++ {
-		for x := 0; x < n; x++ {
+		for x := range n {
 			if showPath && pathNodes[nodeKey{x, y}] && pathNodes[nodeKey{x + 1, y}] {
 				fmt.Fprintf(&sb, "  n%d_%d -- n%d_%d [color=\"#ff5252\", penwidth=2.0, style=dashed];\n",
 					x, y, x+1, y)
@@ -291,7 +270,7 @@ func (my *Myers) toDOT(d int, showPath bool) string {
 	}
 
 	// Down edges
-	for y := 0; y < m; y++ {
+	for y := range m {
 		for x := 0; x <= n; x++ {
 			if showPath && pathNodes[nodeKey{x, y}] && pathNodes[nodeKey{x, y + 1}] {
 				fmt.Fprintf(&sb, "  n%d_%d -- n%d_%d [color=\"#2196f3\", penwidth=2.0, style=dotted];\n",
@@ -303,9 +282,9 @@ func (my *Myers) toDOT(d int, showPath bool) string {
 	}
 
 	// Diagonal edges (only where old[x] == new[y])
-	for y := 0; y < m; y++ {
-		for x := 0; x < n; x++ {
-			if my.old[x] == my.new[y] {
+	for y := range m {
+		for x := range n {
+			if a.oldLines[x] == a.newLines[y] {
 				if showPath && pathNodes[nodeKey{x, y}] && pathNodes[nodeKey{x + 1, y + 1}] {
 					fmt.Fprintf(&sb, "  n%d_%d -- n%d_%d [color=\"#00c853\", penwidth=2.5];\n",
 						x, y, x+1, y+1)
@@ -320,11 +299,7 @@ func (my *Myers) toDOT(d int, showPath bool) string {
 	// Label
 	var labelText string
 	if showPath {
-		numEdits := len(my.trace) - 2
-		if numEdits < 0 {
-			numEdits = 0
-		}
-		labelText = fmt.Sprintf("Done: %d edits (optimal path in green)", numEdits)
+		labelText = fmt.Sprintf("Done: %d edits (optimal path in green)", a.edits)
 	} else if d >= 0 {
 		labelText = fmt.Sprintf("d=%d: exploring edit distance %d", d, d)
 	} else {
@@ -336,4 +311,9 @@ func (my *Myers) toDOT(d int, showPath bool) string {
 
 	sb.WriteString("}\n")
 	return sb.String()
+}
+
+// summary returns a summary string after animation.
+func (a *animation) summary() string {
+	return fmt.Sprintf("Done: %d edits to transform %v → %v", a.edits, a.oldLines, a.newLines)
 }
