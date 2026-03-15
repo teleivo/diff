@@ -16,8 +16,7 @@ const (
 	colorInsert     = "#2196f3" // blue — insert edges on path
 	colorDiagonal   = "#00c853" // green — diagonal edges on path
 	colorDiagonalBG = "#aaaaaa" // gray — diagonal edges not on path
-	colorGridEdge   = "#cccccc" // light gray — default grid edges
-	colorGridNode   = "#cccccc" // light gray — unvisited node border/font
+	colorGridNode = "#cccccc" // light gray — unvisited node border/font
 	colorFrontier   = "#999999" // gray — frontier node border
 	colorLabel      = "#333333" // dark gray — axis labels
 )
@@ -36,15 +35,16 @@ var dColors = [...]string{
 
 // animation animates the quadratic Myers diff algorithm on an edit graph.
 type animation struct {
-	oldLines []string
-	newLines []string
-	n        int                // len(oldLines)
-	m        int                // len(newLines)
-	edits    int                // shortest edit distance
-	trace    [][]int            // trace[d] = V snapshot before processing edit distance d
-	frontier map[point]int      // node -> d value when first reached
-	path     []point            // optimal path nodes in order
-	pathSet  map[point]struct{} // path nodes for O(1) lookup
+	oldLines      []string
+	newLines      []string
+	n             int                // len(oldLines)
+	m             int                // len(newLines)
+	edits         int                // shortest edit distance
+	trace         [][]int            // trace[d] = V snapshot before processing edit distance d
+	frontier      map[point]int      // node -> d value when first reached
+	frontierEdges map[edge]int       // edge -> d value when first traversed
+	path          []point            // optimal path nodes in order
+	pathSet       map[point]struct{} // path nodes for O(1) lookup
 
 	frameIdx int // current animation frame index
 	// frames: 0 = initial grid, 1..len(trace) = d-passes, last = optimal path
@@ -52,6 +52,11 @@ type animation struct {
 
 type point struct {
 	x, y int
+}
+
+// edge represents a directed edge between two points in the edit graph.
+type edge struct {
+	from, to point
 }
 
 func newAnimation(oldLines, newLines []string) *animation {
@@ -65,7 +70,7 @@ func newAnimation(oldLines, newLines []string) *animation {
 	}
 	a.trace, _ = myers.Trace(a.oldLines, a.newLines)
 	a.edits = max(len(a.trace)-1, 0)
-	a.frontier = a.buildFrontier()
+	a.frontier, a.frontierEdges = a.buildFrontier()
 	a.path = a.backtrack(a.trace)
 	a.pathSet = make(map[point]struct{}, len(a.path))
 	for _, p := range a.path {
@@ -74,11 +79,12 @@ func newAnimation(oldLines, newLines []string) *animation {
 	return a
 }
 
-// buildFrontier precomputes which nodes are reached at each edit distance d.
-func (a *animation) buildFrontier() map[point]int {
+// buildFrontier precomputes which nodes and edges are reached at each edit distance d.
+func (a *animation) buildFrontier() (map[point]int, map[edge]int) {
 	n, m := a.n, a.m
 	maxD := n + m
 	frontier := make(map[point]int)
+	edges := make(map[edge]int)
 	for di, v := range a.trace {
 		for k := -di; k <= di; k += 2 {
 			if k > n || k < -m {
@@ -97,16 +103,42 @@ func (a *animation) buildFrontier() map[point]int {
 				}
 			}
 			sy := sx - k
-			for sx <= x && sy <= x-k {
-				if _, exists := frontier[point{sx, sy}]; !exists {
-					frontier[point{sx, sy}] = di
+			if sx < 0 || sy < 0 || sx > n || sy > m {
+				continue
+			}
+			if di > 0 {
+				// edit step edge
+				prevV := a.trace[di-1]
+				prevSx, prevSy := sx, sy
+				if k == -di || (k != di && prevV[i-1] < prevV[i+1]) {
+					prevSy = sy - 1 // insert (down)
+				} else {
+					prevSx = sx - 1 // delete (right)
+				}
+				e := edge{point{prevSx, prevSy}, point{sx, sy}}
+				if _, exists := edges[e]; !exists {
+					edges[e] = di
+				}
+			}
+			// mark nodes and snake edges
+			if _, exists := frontier[point{sx, sy}]; !exists {
+				frontier[point{sx, sy}] = di
+			}
+			for sx < x && sx < n && sy < m {
+				next := point{sx + 1, sy + 1}
+				e := edge{point{sx, sy}, next}
+				if _, exists := edges[e]; !exists {
+					edges[e] = di
 				}
 				sx++
 				sy++
+				if _, exists := frontier[next]; !exists {
+					frontier[next] = di
+				}
 			}
 		}
 	}
-	return frontier
+	return frontier, edges
 }
 
 // backtrack reconstructs the optimal path nodes by backtracking through the trace.
@@ -208,10 +240,10 @@ func (a *animation) toDOT(d int, showPath bool) string {
 	const scale = 72.0 // neato uses points (72pt = 1 inch); space nodes 1 inch apart
 
 	var sb strings.Builder
-	sb.WriteString(`graph G {
+	sb.WriteString(`digraph G {
   graph [bgcolor=white, splines=false];
   node [shape=circle, width=0.3, fixedsize=true, fontsize=10];
-  edge [color="#cccccc"];
+  edge [color="#cccccc", arrowsize=0.5];
 `)
 
 	// Emit axis labels: old sequence along the top (x-axis), new along the left (y-axis)
@@ -261,26 +293,34 @@ func (a *animation) toDOT(d int, showPath bool) string {
 	}
 
 	// Emit grid edges (right = delete, down = insert, diagonal = equal)
-	// Right edges
+	// Right edges (delete)
 	for y := 0; y <= m; y++ {
 		for x := range n {
-			if showPath && a.onPath(point{x, y}) && a.onPath(point{x + 1, y}) {
-				fmt.Fprintf(&sb, "  n%d_%d -- n%d_%d [color=%q, penwidth=2.0, style=dashed];\n",
+			e := edge{point{x, y}, point{x + 1, y}}
+			if showPath && a.onPath(e.from) && a.onPath(e.to) {
+				fmt.Fprintf(&sb, "  n%d_%d -> n%d_%d [color=%q, penwidth=2.0, style=dashed];\n",
+					x, y, x+1, y, colorDelete)
+			} else if di, ok := a.frontierEdges[e]; ok && d >= 0 && di <= d {
+				fmt.Fprintf(&sb, "  n%d_%d -> n%d_%d [color=%q, penwidth=1.5, style=dashed];\n",
 					x, y, x+1, y, colorDelete)
 			} else {
-				fmt.Fprintf(&sb, "  n%d_%d -- n%d_%d [style=dashed];\n", x, y, x+1, y)
+				fmt.Fprintf(&sb, "  n%d_%d -> n%d_%d [style=dashed];\n", x, y, x+1, y)
 			}
 		}
 	}
 
-	// Down edges
+	// Down edges (insert)
 	for y := range m {
 		for x := 0; x <= n; x++ {
-			if showPath && a.onPath(point{x, y}) && a.onPath(point{x, y + 1}) {
-				fmt.Fprintf(&sb, "  n%d_%d -- n%d_%d [color=%q, penwidth=2.0, style=dotted];\n",
+			e := edge{point{x, y}, point{x, y + 1}}
+			if showPath && a.onPath(e.from) && a.onPath(e.to) {
+				fmt.Fprintf(&sb, "  n%d_%d -> n%d_%d [color=%q, penwidth=2.0, style=dotted];\n",
+					x, y, x, y+1, colorInsert)
+			} else if di, ok := a.frontierEdges[e]; ok && d >= 0 && di <= d {
+				fmt.Fprintf(&sb, "  n%d_%d -> n%d_%d [color=%q, penwidth=1.5, style=dotted];\n",
 					x, y, x, y+1, colorInsert)
 			} else {
-				fmt.Fprintf(&sb, "  n%d_%d -- n%d_%d [style=dotted];\n", x, y, x, y+1)
+				fmt.Fprintf(&sb, "  n%d_%d -> n%d_%d [style=dotted];\n", x, y, x, y+1)
 			}
 		}
 	}
@@ -289,11 +329,15 @@ func (a *animation) toDOT(d int, showPath bool) string {
 	for y := range m {
 		for x := range n {
 			if a.oldLines[x] == a.newLines[y] {
-				if showPath && a.onPath(point{x, y}) && a.onPath(point{x + 1, y + 1}) {
-					fmt.Fprintf(&sb, "  n%d_%d -- n%d_%d [color=%q, penwidth=2.5];\n",
+				e := edge{point{x, y}, point{x + 1, y + 1}}
+				if showPath && a.onPath(e.from) && a.onPath(e.to) {
+					fmt.Fprintf(&sb, "  n%d_%d -> n%d_%d [color=%q, penwidth=2.5];\n",
+						x, y, x+1, y+1, colorDiagonal)
+				} else if di, ok := a.frontierEdges[e]; ok && d >= 0 && di <= d {
+					fmt.Fprintf(&sb, "  n%d_%d -> n%d_%d [color=%q, penwidth=2.0];\n",
 						x, y, x+1, y+1, colorDiagonal)
 				} else {
-					fmt.Fprintf(&sb, "  n%d_%d -- n%d_%d [color=%q];\n",
+					fmt.Fprintf(&sb, "  n%d_%d -> n%d_%d [color=%q];\n",
 						x, y, x+1, y+1, colorDiagonalBG)
 				}
 			}
@@ -301,13 +345,14 @@ func (a *animation) toDOT(d int, showPath bool) string {
 	}
 
 	// Label
+	seqs := fmt.Sprintf("%v → %v", a.oldLines, a.newLines)
 	var labelText string
 	if showPath {
-		labelText = fmt.Sprintf("Done: %d edits (optimal path in green)", a.edits)
+		labelText = fmt.Sprintf("Shortest edit script: %d edits\n%s", a.edits, seqs)
 	} else if d >= 0 {
-		labelText = fmt.Sprintf("d=%d: exploring edit distance %d", d, d)
+		labelText = fmt.Sprintf("d = %d\n%s", d, seqs)
 	} else {
-		labelText = "Edit graph (right=delete, down=insert, diagonal=equal)"
+		labelText = fmt.Sprintf("Edit graph\n%s", seqs)
 	}
 	fmt.Fprintf(&sb, "  label=%q;\n", labelText)
 	sb.WriteString("  labelloc=t;\n")
