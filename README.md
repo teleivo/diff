@@ -69,6 +69,25 @@ gdiff --gutter file1.txt file2.txt
 
 Exit codes: 0 (identical), 1 (differences found), 2 (error)
 
+## Animation
+
+`animate-myers` visualizes the quadratic space Myers diff algorithm on an edit graph using the
+example from Myers' 1986 paper.
+
+It shows how the algorithm explores the edit graph by incrementing the edit distance d. For each d,
+the furthest reaching point on each diagonal is shown. The final frame shows the shortest edit
+script found by backtracking.
+
+Requires [Graphviz](https://graphviz.org/) and a terminal with
+[Kitty graphics protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/) support.
+
+```sh
+go run ./cmd/animate-myers
+go run ./cmd/animate-myers --speed 2      # faster animation
+go run ./cmd/animate-myers --step         # press any key to advance each frame
+go run ./cmd/animate-myers --dpi 200      # higher resolution
+```
+
 ## Development
 
 ### Benchmarks
